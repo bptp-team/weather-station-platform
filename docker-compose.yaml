@@ -11,3 +11,26 @@ services:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
+
+  influxdb3:
+    image: influxdb:3-core
+    container_name: influxdb3
+    restart: unless-stopped
+    ports:
+      - "8181:8181"
+    volumes:
+      - influxdb3-data:/var/lib/influxdb3
+    command:
+      - influxdb3
+      - serve
+      - --node-id
+      - influxdb3
+      - --object-store
+      - file
+      - --data-dir
+      - /var/lib/influxdb3
+      - --without-auth
+
+volumes:
+  mosquitto:
+  influxdb3-data:
