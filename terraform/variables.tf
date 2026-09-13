@@ -37,7 +37,7 @@ variable "extra_tags" {
   default     = {}
 }
 
-# --- Networking and access ---
+# Networking and access
 
 variable "vnet_address_space" {
   description = "Address space of the virtual network."
@@ -79,7 +79,7 @@ variable "dns_label" {
   default     = ""
 }
 
-# --- Virtual machine ---
+# Virtual machine
 
 variable "vm_size" {
   description = "VM SKU. Standard_B1s includes 750 free hours per month during the first 12 months."
@@ -138,6 +138,7 @@ variable "os_disk_size_gb" {
 # Image URNs come from the Azure Marketplace catalog, not from the provider
 # documentation. Validate them with:
 #   az vm image list --publisher Canonical --offer ubuntu-24_04-lts --all -o table
+
 variable "image_publisher" {
   description = "Publisher of the VM image."
   type        = string
@@ -162,7 +163,7 @@ variable "image_version" {
   default     = "latest"
 }
 
-# --- Container registry ---
+# Container registry
 
 variable "acr_sku" {
   description = "Azure Container Registry SKU. Basic includes 10 GiB of storage."

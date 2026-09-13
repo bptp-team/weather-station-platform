@@ -56,7 +56,7 @@ resource "random_string" "suffix" {
   special = false
 }
 
-# --- Resource group ---
+# Resource group
 
 resource "azurerm_resource_group" "main" {
   name     = "${local.name_prefix}-rg"
@@ -64,7 +64,7 @@ resource "azurerm_resource_group" "main" {
   tags     = local.tags
 }
 
-# --- Container registry ---
+# Container registry
 
 resource "azurerm_container_registry" "main" {
   name                = local.acr_name
@@ -82,7 +82,7 @@ resource "azurerm_container_registry" "main" {
   tags = local.tags
 }
 
-# --- Networking ---
+# Networking
 
 resource "azurerm_virtual_network" "main" {
   name                = "${local.name_prefix}-vnet"
@@ -135,6 +135,7 @@ resource "azurerm_public_ip" "main" {
 
   # The Standard SKU requires Static allocation. The Basic SKU can no longer
   # be used for new resources since 31 March 2025.
+
   sku               = "Standard"
   allocation_method = "Static"
   domain_name_label = local.dns_label
@@ -156,7 +157,7 @@ resource "azurerm_network_interface" "main" {
   }
 }
 
-# --- Virtual machine ---
+# Virtual machine
 
 resource "azurerm_linux_virtual_machine" "main" {
   name                  = "${local.name_prefix}-vm"
@@ -194,7 +195,7 @@ resource "azurerm_linux_virtual_machine" "main" {
   }
 }
 
-# --- Allows the VM to pull images from the registry ---
+# Allows the VM to pull images from the registry
 
 resource "azurerm_role_assignment" "vm_acr_pull" {
   scope                = azurerm_container_registry.main.id
@@ -205,5 +206,6 @@ resource "azurerm_role_assignment" "vm_acr_pull" {
   # The identity is created in this same apply, so the directory lookup can
   # fail from replication lag. The provider documents this flag for exactly
   # that case.
+
   skip_service_principal_aad_check = true
 }
