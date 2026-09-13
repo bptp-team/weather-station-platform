@@ -57,7 +57,7 @@ variable "ssh_allowed_cidrs" {
 
   validation {
     condition     = length(var.ssh_allowed_cidrs) > 0
-    error_message = "Provide at least one CIDR. Leaving SSH open to the internet is not acceptable."
+    error_message = "Be sure to specify at least one CIDR. SSH access should never be open to the entire internet."
   }
 }
 
