@@ -1,0 +1,30 @@
+# Copy this file to terraform.tfvars and fill in your own values.
+# The real terraform.tfvars is listed in .gitignore and must not be committed.
+
+# Get it with: az account show --query id -o tsv
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+project_name = "weather-station"
+environment  = "dev"
+location     = "brazilsouth"
+
+# Get your public IP with: curl -s ifconfig.me
+ssh_allowed_cidrs = ["203.0.113.10/32"]
+
+# Ports 80 and 443 stay open so the evaluators can reach the application.
+http_allowed_cidrs = ["0.0.0.0/0"]
+
+# Port 1883 stays open because the ESP32 boards connect from dynamic IPs.
+# Enable authentication in mosquitto.conf before exposing this.
+mqtt_allowed_cidrs = ["0.0.0.0/0"]
+
+vm_size             = "Standard_B1s"
+admin_username      = "azureuser"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+acr_sku = "Basic"
+
+extra_tags = {
+  owner  = "bptp-team"
+  course = "our-project"
+}
