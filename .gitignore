@@ -1,3 +1,46 @@
 .env
 mosquitto/data/*
 mosquitto/log/*
+
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+override_*.tf
+*_override.tf
+.terraformrc
+terraform.rc
+
+# Ansible
+*.retry
+.vault_pass
+vault_pass.txt
+ansible/inventory/*.generated.yml
+
+# Secrets and Environment Variables
+.env
+.env.*
+!.env.example
+*.pem
+id_rsa
+id_rsa.*
+
+# Mosquitto Runtime State
+compose/mosquitto/data/
+compose/mosquitto/log/
+
+# Operating System and Editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
