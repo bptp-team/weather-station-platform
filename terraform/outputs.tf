@@ -19,13 +19,8 @@ output "public_ip_address" {
 }
 
 output "public_fqdn" {
-  description = "Public DNS name of the VM. Use this value in the ESP32 firmware."
+  description = "Public DNS name of the VM. Used by the ESP32 firmware to reach the broker."
   value       = azurerm_public_ip.main.fqdn
-}
-
-output "ssh_command" {
-  description = "Ready to use command to reach the VM."
-  value       = "ssh ${var.admin_username}@${azurerm_public_ip.main.fqdn}"
 }
 
 output "acr_name" {
@@ -36,23 +31,4 @@ output "acr_name" {
 output "acr_login_server" {
   description = "Registry hostname used in image tags and in the compose file."
   value       = azurerm_container_registry.main.login_server
-}
-
-output "ansible_inventory" {
-  description = "Inventory ready for Ansible. Redirect it to ansible/inventory/hosts.yml."
-
-  value = yamlencode({
-    weather_station = {
-      hosts = {
-        (azurerm_linux_virtual_machine.main.name) = {
-          ansible_host = azurerm_public_ip.main.ip_address
-          ansible_user = var.admin_username
-        }
-      }
-      vars = {
-        acr_login_server = azurerm_container_registry.main.login_server
-        public_fqdn      = azurerm_public_ip.main.fqdn
-      }
-    }
-  })
 }
