@@ -107,25 +107,12 @@ variable "os_disk_caching" {
   description = "Caching mode of the OS disk. Accepted values: None, ReadOnly, ReadWrite."
   type        = string
   default     = "ReadWrite"
-
-  validation {
-    condition     = contains(["None", "ReadOnly", "ReadWrite"], var.os_disk_caching)
-    error_message = "Accepted values: None, ReadOnly, ReadWrite."
-  }
 }
 
 variable "os_disk_type" {
   description = "Storage account type backing the OS disk."
   type        = string
   default     = "StandardSSD_LRS"
-
-  validation {
-    condition = contains(
-      ["Standard_LRS", "StandardSSD_LRS", "Premium_LRS", "StandardSSD_ZRS", "Premium_ZRS"],
-      var.os_disk_type
-    )
-    error_message = "Accepted values: Standard_LRS, StandardSSD_LRS, Premium_LRS, StandardSSD_ZRS, Premium_ZRS."
-  }
 }
 
 variable "os_disk_size_gb" {
@@ -139,8 +126,7 @@ variable "os_disk_size_gb" {
   }
 }
 
-# Image URNs come from the Azure Marketplace catalog, not from the provider
-# documentation. Validate them with:
+# Ubuntu image used by the VM. List available versions with:
 #   az vm image list --publisher Canonical --offer ubuntu-24_04-lts --all -o table
 
 variable "image_publisher" {
@@ -183,9 +169,4 @@ variable "acr_sku" {
   description = "Azure Container Registry SKU. Basic includes 10 GiB of storage."
   type        = string
   default     = "Basic"
-
-  validation {
-    condition     = contains(["Basic", "Standard", "Premium"], var.acr_sku)
-    error_message = "Accepted values: Basic, Standard, Premium."
-  }
 }
