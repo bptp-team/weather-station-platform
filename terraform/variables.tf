@@ -74,9 +74,13 @@ variable "mqtt_allowed_cidrs" {
 }
 
 variable "dns_label" {
-  description = "DNS label for the public IP. An empty value generates a label with a random suffix."
+  description = "DNS label for the public IP. Must be unique within the region and becomes <label>.<region>.cloudapp.azure.com"
   type        = string
-  default     = ""
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,61}[a-z0-9]$", var.dns_label))
+    error_message = "Start with a letter, end with a letter or digit, and use lowercase letters, digits and hyphens only."
+  }
 }
 
 # Virtual machine
@@ -164,6 +168,16 @@ variable "image_version" {
 }
 
 # Container registry
+
+variable "acr_name" {
+  description = "Globally unique name for the container registry. Check availability with: az acr check-name --name <value>"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9]{5,50}$", var.acr_name))
+    error_message = "Use lowercase letters and digits only, between 5 and 50 characters."
+  }
+}
 
 variable "acr_sku" {
   description = "Azure Container Registry SKU. Basic includes 10 GiB of storage."

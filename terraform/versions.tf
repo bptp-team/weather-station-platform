@@ -6,11 +6,6 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 5.5"
     }
-
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
   }
 
   # State stays local until the Storage Account that will host it exists.

@@ -1,12 +1,6 @@
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
-  # The registry name only accepts alphanumeric characters and must be
-  # globally unique, hence the stripped hyphens and the random suffix.
-  acr_name = lower(replace("${var.project_name}${var.environment}acr${random_string.suffix.result}", "-", ""))
-
-  dns_label = var.dns_label != "" ? var.dns_label : "${local.name_prefix}-${random_string.suffix.result}"
-
   tags = merge(
     {
       project     = var.project_name
@@ -48,14 +42,6 @@ locals {
   ]
 }
 
-resource "random_string" "suffix" {
-  length  = 6
-  lower   = true
-  upper   = false
-  numeric = true
-  special = false
-}
-
 # Resource group
 
 resource "azurerm_resource_group" "main" {
@@ -67,7 +53,7 @@ resource "azurerm_resource_group" "main" {
 # Container registry
 
 resource "azurerm_container_registry" "main" {
-  name                = local.acr_name
+  name                = var.acr_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = var.acr_sku
@@ -138,7 +124,7 @@ resource "azurerm_public_ip" "main" {
 
   sku               = "Standard"
   allocation_method = "Static"
-  domain_name_label = local.dns_label
+  domain_name_label = var.dns_label
 
   tags = local.tags
 }
