@@ -57,13 +57,7 @@ resource "azurerm_container_registry" "main" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = var.acr_sku
-
-  # No admin user: pushes come from GitHub Actions through OIDC and pulls
-  # come from the VM managed identity via the AcrPull role below.
-  admin_enabled = false
-
-  # retention_policy_in_days is deliberately absent: the provider docs state
-  # it is only supported on the Premium SKU.
+  admin_enabled       = false
 
   tags = local.tags
 }
@@ -119,9 +113,7 @@ resource "azurerm_public_ip" "main" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 
-  # The Standard SKU requires Static allocation. The Basic SKU can no longer
-  # be used for new resources since 31 March 2025.
-
+  # The Standard SKU requires Static allocation.
   sku               = "Standard"
   allocation_method = "Static"
   domain_name_label = var.dns_label
@@ -146,16 +138,14 @@ resource "azurerm_network_interface" "main" {
 # Virtual machine
 
 resource "azurerm_linux_virtual_machine" "main" {
-  name                  = "${local.name_prefix}-vm"
-  resource_group_name   = azurerm_resource_group.main.name
-  location              = azurerm_resource_group.main.location
-  size                  = var.vm_size
-  admin_username        = var.admin_username
-  network_interface_ids = [azurerm_network_interface.main.id]
-  tags                  = local.tags
-
-  # Defaults to true, stated explicitly so the intent is visible.
+  name                            = "${local.name_prefix}-vm"
+  resource_group_name             = azurerm_resource_group.main.name
+  location                        = azurerm_resource_group.main.location
+  size                            = var.vm_size
+  admin_username                  = var.admin_username
+  network_interface_ids           = [azurerm_network_interface.main.id]
   disable_password_authentication = true
+  tags                            = local.tags
 
   admin_ssh_key {
     username   = var.admin_username
@@ -189,9 +179,6 @@ resource "azurerm_role_assignment" "vm_acr_pull" {
   principal_id         = azurerm_linux_virtual_machine.main.identity[0].principal_id
   principal_type       = "ServicePrincipal"
 
-  # The identity is created in this same apply, so the directory lookup can
-  # fail from replication lag. The provider documents this flag for exactly
-  # that case.
-
+  # The identity is created in this same apply.
   skip_service_principal_aad_check = true
 }
