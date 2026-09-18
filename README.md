@@ -34,10 +34,11 @@ This repository holds the **infrastructure** the rest of the **Weather Station**
 | --------- | ------- |
 | `compose/` | **MQTT broker** and **time-series database**, run with **Docker Compose** |
 | `terraform/` | **Azure** resources that host the system: **VM**, **network** and **container registry** |
+| `edge/` | **Nginx** in front of the **frontend** and **backend**: **TLS** and **routing** |
 
 The two halves are **independent**. `compose/` is what you run for **local
 development**; `terraform/` provisions the **machine** where that same stack
-runs in **production**.
+runs in **production**. `edge/` runs **only in production**, on that machine.
 
 ## Services
 
@@ -281,6 +282,68 @@ Terraform provisions the **host and nothing more**. It does **not** install
 **Docker**, copy this compose file, or start the services on the VM. There is
 **no cloud-init and no configuration management** in this repository — those
 steps are **manual** after `apply`.
+
+## Edge proxy
+
+`edge/nginx.conf` is the **only public entry** to the web application. It
+answers on ports `80` and `443`, **obtains and renews** the **Let's Encrypt**
+certificate by itself, and routes each request:
+
+| Path | Destination | Container |
+| ---- | ----------- | --------- |
+| `/api/` | `127.0.0.1:8000` | **backend** |
+| everything else | `127.0.0.1:8080` | **frontend** |
+
+The **frontend** and the **backend** are published on `127.0.0.1` only, as their
+own READMEs describe, so they are **reachable only through the edge**. FastAPI's
+`/docs` and `/openapi.json` are **not exposed**: only `/api/` reaches the backend.
+
+It **does not run locally**. Let's Encrypt must reach a **public domain** on
+port `80`, which only the VM has.
+
+### Before starting
+
+- `server_name` in `edge/nginx.conf` **must match** the `public_fqdn` output.
+  The file carries `weather-station.brazilsouth.cloudapp.azure.com`, the name
+  produced by the example `dns_label`.
+- Build the **frontend** with
+  `--build-arg VITE_WEATHER_API_URL=https://<public_fqdn>`. The API is then on
+  the **same origin** as the page, so `WEATHER_ALLOWED_ORIGINS` can stay empty.
+- Run the **backend** with `-e FORWARDED_ALLOW_IPS='*'`. Without it, the server
+  **ignores** the `X-Forwarded-*` headers the edge sends, because requests
+  arrive from the **Docker bridge**, not from `127.0.0.1`. Trusting every
+  address is safe only because the backend port is **bound to `127.0.0.1`**.
+
+### Start
+
+```sh
+docker run -d --name edge --restart unless-stopped --network host \
+    -v "$PWD/edge/nginx.conf:/etc/nginx/nginx.conf:ro" \
+    -v edge-acme:/var/cache/nginx \
+    nginx:1.30.4
+```
+
+- `--network host` lets the edge reach `127.0.0.1:8000` and `127.0.0.1:8080`
+  and listen on ports `80` and `443` of the VM directly.
+- The `edge-acme` volume **must be kept**. It stores the **ACME account**, the
+  **certificate** and its **private key**. Without it, every restart requests a
+  **new certificate**, and Let's Encrypt allows only **5 identical
+  certificates per week**.
+
+On the **first deployment**, point `uri` in `edge/nginx.conf` at the
+**staging** directory, `https://acme-staging-v02.api.letsencrypt.org/directory`,
+and switch back to production once the certificate is issued. Delete the
+`edge-acme` volume when switching, so the staging account and certificate are
+discarded.
+
+### Verify
+
+```sh
+curl -I http://<public_fqdn>                                    # 301 to https
+curl https://<public_fqdn>/healthz                              # ok, from the frontend
+curl -N https://<public_fqdn>/api/v1/readings/station-01/stream # live readings
+docker logs edge                                                # access log, real client addresses
+```
 
 ## Security
 
