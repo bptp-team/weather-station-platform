@@ -4,35 +4,16 @@
 # Get it with: az account show --query id -o tsv
 subscription_id = "00000000-0000-0000-0000-000000000000"
 
-project_name = "weather-station"
-environment  = "dev"
-location     = "brazilsouth"
-
-# Get your public IP with: curl -s ifconfig.me
+# Get your public IP with: curl -4 -s ifconfig.me
 ssh_allowed_cidrs = ["203.0.113.10/32"]
 
-# Ports 80 and 443 stay open so the evaluators can reach the application.
-http_allowed_cidrs = ["0.0.0.0/0"]
+# Get it with: cat ~/.ssh/id_ed25519.pub
+ssh_public_key = "ssh-ed25519 AAAA... you@example.com"
 
-# Port 1883 stays open because the ESP32 boards connect from dynamic IPs.
-# Enable authentication in mosquitto.conf before exposing this.
-mqtt_allowed_cidrs = ["0.0.0.0/0"]
-
-vm_size             = "Standard_B1s"
-admin_username      = "azureuser"
-ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# Must be unique within the region.
+# Becomes weather-station.mexicocentral.cloudapp.azure.com
+dns_label = "weather-station"
 
 # Must be globally unique. Lowercase letters and digits only, no hyphens.
 # Check availability with: az acr check-name --name weatherstationacr
 acr_name = "weatherstationacr"
-
-acr_sku = "Basic"
-
-# Must be unique within the region.
-# Becomes weather-station.brazilsouth.cloudapp.azure.com
-dns_label = "weather-station"
-
-extra_tags = {
-  owner  = "bptp-team"
-  course = "our-project"
-}
