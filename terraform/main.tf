@@ -1,105 +1,82 @@
 locals {
-  name_prefix = "${var.project_name}-${var.environment}"
-
-  tags = merge(
-    {
-      project     = var.project_name
-      environment = var.environment
-      managed_by  = "terraform"
-    },
-    var.extra_tags
-  )
-
-  nsg_rules = [
-    {
-      name         = "allow-ssh"
-      priority     = 100
-      port         = "22"
-      source_cidrs = var.ssh_allowed_cidrs
-      description  = "Administrative access, restricted to known addresses."
-    },
-    {
-      name         = "allow-http"
-      priority     = 110
-      port         = "80"
-      source_cidrs = var.http_allowed_cidrs
-      description  = "Frontend and ACME HTTP-01 challenge."
-    },
-    {
-      name         = "allow-https"
-      priority     = 120
-      port         = "443"
-      source_cidrs = var.http_allowed_cidrs
-      description  = "Frontend and backend API over TLS."
-    },
-    {
-      name         = "allow-mqtt"
-      priority     = 130
-      port         = "1883"
-      source_cidrs = var.mqtt_allowed_cidrs
-      description  = "MQTT ingestion from the ESP32 boards."
-    },
-  ]
+  tags = {
+    project    = "weather-station"
+    managed_by = "terraform"
+  }
 }
-
-# Resource group
 
 resource "azurerm_resource_group" "main" {
-  name     = "${local.name_prefix}-rg"
-  location = var.location
+  name     = "weather-station-rg"
+  location = "mexicocentral"
   tags     = local.tags
 }
-
-# Container registry
 
 resource "azurerm_container_registry" "main" {
   name                = var.acr_name
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  sku                 = var.acr_sku
+  sku                 = "Basic"
   admin_enabled       = false
-
-  tags = local.tags
+  tags                = local.tags
 }
 
-# Networking
-
 resource "azurerm_virtual_network" "main" {
-  name                = "${local.name_prefix}-vnet"
+  name                = "weather-station-vnet"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  address_space       = var.vnet_address_space
+  address_space       = ["10.10.0.0/16"]
   tags                = local.tags
 }
 
 resource "azurerm_subnet" "main" {
-  name                 = "${local.name_prefix}-subnet"
+  name                 = "weather-station-subnet"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = var.subnet_address_prefixes
+  address_prefixes     = ["10.10.1.0/24"]
 }
 
 resource "azurerm_network_security_group" "main" {
-  name                = "${local.name_prefix}-nsg"
+  name                = "weather-station-nsg"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   tags                = local.tags
 
-  dynamic "security_rule" {
-    for_each = local.nsg_rules
+  security_rule {
+    name                       = "allow-ssh"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefixes    = var.ssh_allowed_cidrs
+    destination_address_prefix = "*"
+  }
 
-    content {
-      name                       = security_rule.value.name
-      description                = security_rule.value.description
-      priority                   = security_rule.value.priority
-      direction                  = "Inbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = security_rule.value.port
-      source_address_prefixes    = security_rule.value.source_cidrs
-      destination_address_prefix = "*"
-    }
+  # 80 also serves the ACME HTTP-01 challenge.
+  security_rule {
+    name                       = "allow-web"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_ranges    = ["80", "443"]
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "*"
+  }
+
+  # The ESP32 boards connect from dynamic addresses.
+  security_rule {
+    name                       = "allow-mqtt"
+    priority                   = 120
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "1883"
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "*"
   }
 }
 
@@ -109,20 +86,17 @@ resource "azurerm_subnet_network_security_group_association" "main" {
 }
 
 resource "azurerm_public_ip" "main" {
-  name                = "${local.name_prefix}-pip"
+  name                = "weather-station-pip"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-
-  # The Standard SKU requires Static allocation.
-  sku               = "Standard"
-  allocation_method = "Static"
-  domain_name_label = var.dns_label
-
-  tags = local.tags
+  sku                 = "Standard"
+  allocation_method   = "Static"
+  domain_name_label   = var.dns_label
+  tags                = local.tags
 }
 
 resource "azurerm_network_interface" "main" {
-  name                = "${local.name_prefix}-nic"
+  name                = "weather-station-nic"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   tags                = local.tags
@@ -135,50 +109,49 @@ resource "azurerm_network_interface" "main" {
   }
 }
 
-# Virtual machine
-
 resource "azurerm_linux_virtual_machine" "main" {
-  name                            = "${local.name_prefix}-vm"
+  name                            = "weather-station-vm"
   resource_group_name             = azurerm_resource_group.main.name
   location                        = azurerm_resource_group.main.location
-  size                            = var.vm_size
-  admin_username                  = var.admin_username
+  size                            = "Standard_B2ats_v2"
+  admin_username                  = "azureuser"
   network_interface_ids           = [azurerm_network_interface.main.id]
   disable_password_authentication = true
   tags                            = local.tags
 
   admin_ssh_key {
-    username   = var.admin_username
-    public_key = file(pathexpand(var.ssh_public_key_path))
+    username   = "azureuser"
+    public_key = var.ssh_public_key
   }
 
   os_disk {
-    name                 = "${local.name_prefix}-osdisk"
-    caching              = var.os_disk_caching
-    storage_account_type = var.os_disk_type
-    disk_size_gb         = var.os_disk_size_gb
+    name                 = "weather-station-osdisk"
+    caching              = "ReadWrite"
+    storage_account_type = "StandardSSD_LRS"
+    disk_size_gb         = 30
   }
 
   source_image_reference {
-    publisher = var.image_publisher
-    offer     = var.image_offer
-    sku       = var.image_sku
-    version   = var.image_version
+    publisher = "Canonical"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
+    version   = "latest"
   }
 
   identity {
     type = "SystemAssigned"
   }
+
+  # The OS disk holds the InfluxDB data, the broker state and the ACME certificate.
+  # lifecycle {
+  #   prevent_destroy = true
+  # }
 }
 
-# Allows the VM to pull images from the registry
-
 resource "azurerm_role_assignment" "vm_acr_pull" {
-  scope                = azurerm_container_registry.main.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_linux_virtual_machine.main.identity[0].principal_id
-  principal_type       = "ServicePrincipal"
-
-  # The identity is created in this same apply.
+  scope                            = azurerm_container_registry.main.id
+  role_definition_name             = "AcrPull"
+  principal_id                     = azurerm_linux_virtual_machine.main.identity[0].principal_id
+  principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
 }
