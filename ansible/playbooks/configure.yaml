@@ -1,0 +1,11 @@
+---
+- name: Configure the weather station host
+  hosts: weather_station
+  gather_facts: true
+  become: true
+
+  roles:
+    - update-os
+    - base-packages
+    - docker-install
+    - azure-cli
