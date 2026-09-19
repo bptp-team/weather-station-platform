@@ -192,24 +192,24 @@ curl -X POST "http://localhost:8181/api/v3/query_sql" \
 
 ## Infrastructure
 
-The `terraform/` module provisions the **Azure** host. It requires
-**Terraform 1.9.0 or later** and the **azurerm provider 5.5 or later**.
+The `terraform/` module provisions the **Azure** host in `mexicocentral`. The
+**Azure for Students** subscription only allows deployments in a fixed list of
+regions (`az policy assignment list`), and **none of them is in Brazil**; Mexico
+Central is the closest. It requires **Terraform 1.9 or later (1.x)** and the
+**azurerm provider 5.5 or later (5.x)**.
 
 ### Resources
 
-With the default `project_name` and `environment`, every name is prefixed
-`weather-station-dev`:
-
 | Resource | Name | Notes |
 | -------- | ---- | ----- |
-| Resource group | `weather-station-dev-rg` | Holds everything below |
-| Container registry | `var.acr_name` | **Globally unique**; admin account **disabled** |
-| Virtual network | `weather-station-dev-vnet` | `10.10.0.0/16` |
-| Subnet | `weather-station-dev-subnet` | `10.10.1.0/24` |
-| Network security group | `weather-station-dev-nsg` | Rules below |
-| Public IP | `weather-station-dev-pip` | **Standard** SKU, **static**, with a **DNS label** |
-| Network interface | `weather-station-dev-nic` | |
-| Virtual machine | `weather-station-dev-vm` | **Ubuntu 24.04 LTS**, `Standard_B1s` |
+| Resource group | `weather-station-rg` | Holds everything below |
+| Container registry | `var.acr_name` | **Basic**, **globally unique**; admin account **disabled** |
+| Virtual network | `weather-station-vnet` | `10.10.0.0/16` |
+| Subnet | `weather-station-subnet` | `10.10.1.0/24` |
+| Network security group | `weather-station-nsg` | Rules below |
+| Public IP | `weather-station-pip` | **Standard** SKU, **static**, with a **DNS label** |
+| Network interface | `weather-station-nic` | |
+| Virtual machine | `weather-station-vm` | **Ubuntu 24.04 LTS**, `Standard_B2ats_v2`, 30 GB disk |
 | Role assignment | — | Grants the VM **`AcrPull`** on the registry |
 
 The VM carries a **system-assigned managed identity**, and that identity is what
@@ -218,22 +218,66 @@ images using its **own identity**, and `admin_enabled = false` keeps the
 registry's shared account **switched off**.
 
 **Password authentication is disabled** on the VM. Access is by **SSH key
-only**, injected from `ssh_public_key_path`.
+only**, taken from `ssh_public_key`. The key is set **by value**, not read from
+a local path, so every operator plans against the **same key** — a different
+key would force the VM to be **replaced**.
+
+**The VM has `prevent_destroy`.** Its OS disk holds the **InfluxDB data**, the
+**broker state** and the **ACME certificate**, so any plan that would destroy
+or replace it **fails** instead. Remove the `lifecycle` block deliberately if
+that is really intended.
 
 ### Firewall
 
-The NSG opens **four inbound ports**:
-
-| Port | Priority | Default source | Purpose |
-| ---- | -------- | -------------- | ------- |
+| Port | Priority | Source | Purpose |
+| ---- | -------- | ------ | ------- |
 | `22` | 100 | `ssh_allowed_cidrs` — **no default** | Administrative access |
-| `80` | 110 | `0.0.0.0/0` | Frontend and **ACME HTTP-01** challenge |
-| `443` | 120 | `0.0.0.0/0` | Frontend and backend **API over TLS** |
-| `1883` | 130 | `0.0.0.0/0` | **MQTT ingestion** from the ESP32 boards |
+| `80`, `443` | 110 | `Internet` | Frontend, backend **API over TLS** and **ACME HTTP-01** |
+| `1883` | 120 | `Internet` | **MQTT ingestion** from the ESP32 boards (dynamic addresses) |
 
-`ssh_allowed_cidrs` has **no default** and **must** be set — the module refuses
-an empty list. Use **your own address with a `/32` mask**; get it with
-`curl -s ifconfig.me`.
+`ssh_allowed_cidrs` **must** be set — the module refuses an empty list and
+`0.0.0.0/0`. Use **your own address with a `/32` mask**; get it with
+`curl -4 -s ifconfig.me`.
+
+### State
+
+State is stored in an **Azure Storage Account**, declared in the `backend`
+block of `versions.tf`. The blob lease **locks** the state during every
+operation, and access uses **Entra ID** (`use_azuread_auth`), so the account
+keeps **shared keys disabled**.
+
+The account is **created once, outside Terraform**, because it must exist before
+`init`. Its name is **globally unique**: if `weatherstationtfstate` is taken,
+pick another and update `storage_account_name` in `versions.tf`.
+
+```sh
+az provider register --namespace Microsoft.Storage --wait
+
+az group create -n weather-station-tfstate-rg -l mexicocentral
+
+az storage account create -n weatherstationtfstate -g weather-station-tfstate-rg \
+    -l mexicocentral --sku Standard_LRS --min-tls-version TLS1_2 \
+    --allow-blob-public-access false --allow-shared-key-access false
+
+az storage account blob-service-properties update \
+    --account-name weatherstationtfstate -g weather-station-tfstate-rg \
+    --enable-versioning true --enable-delete-retention true --delete-retention-days 30
+
+az role assignment create --role "Storage Blob Data Contributor" \
+    --assignee "$(az ad signed-in-user show --query id -o tsv)" \
+    --scope "$(az storage account show -n weatherstationtfstate -g weather-station-tfstate-rg --query id -o tsv)"
+
+az storage container create -n tfstate --account-name weatherstationtfstate --auth-mode login
+```
+
+The **first command** registers the storage resource provider: new
+subscriptions, such as **Azure for Students**, start without it, and every
+other command fails with `SubscriptionNotFound` until it is registered.
+
+**Blob versioning** keeps every previous state, so a corrupted or overwritten
+state can be **restored**. The role assignment may take **a minute** to
+propagate. Every other operator needs the same **`Storage Blob Data
+Contributor`** role on the account.
 
 ### Usage
 
@@ -242,13 +286,13 @@ az login
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
-Fill in `subscription_id`, `ssh_allowed_cidrs`, `acr_name` and `dns_label`. The
-example file carries the command for each value. Then:
+Fill in `subscription_id`, `ssh_allowed_cidrs`, `ssh_public_key`, `dns_label`
+and `acr_name`. The example file carries the command for each value. Then:
 
 ```sh
 terraform -chdir=terraform init
-terraform -chdir=terraform plan
-terraform -chdir=terraform apply
+terraform -chdir=terraform plan -out=main.tfplan
+terraform -chdir=terraform apply main.tfplan
 ```
 
 `terraform.tfvars` is **ignored by Git** and **must not be committed**.
@@ -262,19 +306,11 @@ terraform -chdir=terraform output
 | Output | Used for |
 | ------ | -------- |
 | `public_ip_address` | Reaching the VM |
-| `public_fqdn` | `<dns_label>.<region>.cloudapp.azure.com` — the **broker address** the firmware connects to |
+| `public_fqdn` | `<dns_label>.mexicocentral.cloudapp.azure.com` — the **broker address** the firmware connects to and `server_name` in `edge/nginx.conf` |
 | `acr_login_server` | **Registry hostname** used in image tags |
 | `acr_name` | `az acr login --name <value>` |
 | `resource_group_name` | Scoping `az` commands |
 | `vm_name` | Scoping `az` commands |
-| `vm_identity_principal_id` | The identity holding `AcrPull` |
-
-### State
-
-**State is local.** `versions.tf` carries **no backend block** — the comment
-there records the reason: the **Storage Account** that would host the state
-**does not exist yet**. `terraform.tfstate` is **ignored by Git**, so it lives
-on **one machine only**. Back it up before destroying anything.
 
 ### What is not automated
 
@@ -304,7 +340,7 @@ port `80`, which only the VM has.
 ### Before starting
 
 - `server_name` in `edge/nginx.conf` **must match** the `public_fqdn` output.
-  The file carries `weather-station.brazilsouth.cloudapp.azure.com`, the name
+  The file carries `weather-station.mexicocentral.cloudapp.azure.com`, the name
   produced by the example `dns_label`.
 - Build the **frontend** with
   `--build-arg VITE_WEATHER_API_URL=https://<public_fqdn>`. The API is then on
