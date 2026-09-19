@@ -1,0 +1,5 @@
+---
+azure_cli_keyring_path: /etc/apt/keyrings/microsoft.asc
+azure_cli_gpg_url: https://packages.microsoft.com/keys/microsoft.asc
+azure_cli_repo_uri: https://packages.microsoft.com/repos/azure-cli/
+azure_cli_repo_component: main
