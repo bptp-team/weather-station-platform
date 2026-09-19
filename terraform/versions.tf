@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.9.0"
+  required_version = "~> 1.9"
 
   required_providers {
     azurerm = {
@@ -8,6 +8,12 @@ terraform {
     }
   }
 
-  # State stays local until the Storage Account that will host it exists.
-  # The backend block is added once the persistent module is in place.
+  # Created once outside Terraform. See "State" in the README.
+  backend "azurerm" {
+    resource_group_name  = "weather-station-tfstate-rg"
+    storage_account_name = "weatherstationtfstate"
+    container_name       = "tfstate"
+    key                  = "weather-station.tfstate"
+    use_azuread_auth     = true
+  }
 }
