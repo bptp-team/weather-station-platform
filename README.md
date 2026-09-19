@@ -34,11 +34,13 @@ This repository holds the **infrastructure** the rest of the **Weather Station**
 | --------- | ------- |
 | `compose/` | **MQTT broker** and **time-series database**, run with **Docker Compose** |
 | `terraform/` | **Azure** resources that host the system: **VM**, **network** and **container registry** |
+| `ansible/` | **Packages** installed on that VM: **Docker** and **Azure CLI** |
 | `edge/` | **Nginx** in front of the **frontend** and **backend**: **TLS** and **routing** |
 
 The two halves are **independent**. `compose/` is what you run for **local
 development**; `terraform/` provisions the **machine** where that same stack
-runs in **production**. `edge/` runs **only in production**, on that machine.
+runs in **production**, and `ansible/` installs what that machine needs to run
+it. `edge/` runs **only in production**, on that machine.
 
 ## Services
 
@@ -314,10 +316,60 @@ terraform -chdir=terraform output
 
 ### What is not automated
 
-Terraform provisions the **host and nothing more**. It does **not** install
-**Docker**, copy this compose file, or start the services on the VM. There is
-**no cloud-init and no configuration management** in this repository — those
-steps are **manual** after `apply`.
+Terraform provisions the **host and nothing more**. The packages are installed
+by `ansible/` — see [Host configuration](#host-configuration). Copying this
+compose file and starting the services on the VM are still **manual**.
+
+## Host configuration
+
+`ansible/` prepares the VM created by `terraform/`. It **installs packages
+only**: it does not copy files or start containers.
+
+| Role | What it does |
+| ---- | ------------ |
+| `update-os` | Upgrades every package, removes orphans and cleans the **apt cache** |
+| `base-packages` | Installs `git`, `curl`, `jq` and other utilities, and sets the **timezone** |
+| `docker-install` | Installs **Docker Engine** with **Compose v2** and **Buildx** from **Docker's repository**, rotates container logs and adds `azureuser` to the `docker` group |
+| `azure-cli` | Installs the **Azure CLI** from **Microsoft's repository** |
+
+The **Azure CLI** is what lets the VM pull from the registry with its **managed
+identity**, without any stored password:
+
+```sh
+az login --identity
+az acr login --name <acr_name>
+```
+
+The **registry token** lasts about **3 hours**. Log in again **before each
+deployment**; containers that are already running are not affected.
+
+### Usage
+
+It requires **ansible-core 2.15 or later**. SSH reaches the VM only from
+`ssh_allowed_cidrs`, as `azureuser`, with the key set in `ssh_public_key`.
+
+`ansible_host` in `ansible/inventory/azure.yaml` **must match** the
+`public_fqdn` output. Then:
+
+```sh
+cd ansible
+ansible-galaxy collection install -r requirements.yaml
+ansible-playbook playbooks/configure.yaml
+```
+
+Run the commands **from `ansible/`**: Ansible reads `ansible.cfg` from the
+**current directory**, and that file points at the inventory and the roles.
+
+The **first connection** records the VM's host key in `~/.ssh/known_hosts`. A
+**different key later** stops the run. That is expected only if the VM was
+**replaced**: then remove the old entry with `ssh-keygen -R <public_fqdn>`.
+
+**No reboot** happens by default. When an upgrade needs one, for example after a
+**new kernel**, request it explicitly:
+
+```sh
+ansible-playbook playbooks/configure.yaml -e update_os_reboot_if_required=true
+```
 
 ## Edge proxy
 
