@@ -1,0 +1,10 @@
+---
+base_packages_list:
+  - vim
+  - curl
+  - git
+  - htop
+  - jq
+  - ca-certificates
+  - gnupg
+  - tzdata
