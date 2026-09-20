@@ -1,0 +1,81 @@
+---
+- name: Remove conflicting packages
+  ansible.builtin.apt:
+    name: "{{ docker_conflicting_packages }}"
+    state: absent
+
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name: "{{ docker_prerequisites }}"
+    state: present
+    update_cache: true
+
+- name: Create keyrings directory
+  ansible.builtin.file:
+    path: "{{ docker_keyring_path | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: "{{ docker_gpg_url }}"
+    dest: "{{ docker_keyring_path }}"
+    mode: "0644"
+
+- name: Get dpkg architecture
+  ansible.builtin.command: dpkg --print-architecture
+  register: dpkg_architecture
+  changed_when: false
+
+- name: Add Docker apt repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: "{{ docker_repo_uri }}"
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: "{{ docker_repo_component }}"
+    architectures: "{{ dpkg_architecture.stdout }}"
+    signed_by: "{{ docker_keyring_path }}"
+    state: present
+    enabled: true
+
+- name: Install Docker packages
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: true
+
+- name: Configure log rotation
+  ansible.builtin.copy:
+    content: "{{ docker_daemon_config | to_nice_json }}"
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  vars:
+    docker_daemon_config:
+      log-driver: json-file
+      log-opts:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+  notify: Restart docker
+
+- name: Ensure Docker service is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Allow users to run Docker without sudo
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
+
+- name: Get Docker version
+  ansible.builtin.command: docker --version
+  register: docker_version_output
+  changed_when: false
+
+- name: Report installed version
+  ansible.builtin.debug:
+    msg: "{{ docker_version_output.stdout }}"
