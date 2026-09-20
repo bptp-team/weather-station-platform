@@ -1,0 +1,84 @@
+---
+- name: Create the project directory
+  ansible.builtin.file:
+    path: "{{ weather_platform_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Create the broker directories
+  ansible.builtin.file:
+    path: "{{ weather_platform_dir }}/mosquitto/{{ item }}"
+    state: directory
+    owner: "{{ weather_platform_mosquitto_uid }}"
+    group: "{{ weather_platform_mosquitto_uid }}"
+    mode: "0755"
+  loop:
+    - config
+    - data
+    - log
+
+- name: Install the broker configuration
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../compose/mosquitto/config/mosquitto.conf"
+    dest: "{{ weather_platform_dir }}/mosquitto/config/mosquitto.conf"
+    mode: "0644"
+
+- name: Install the edge configuration
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../edge/nginx.conf"
+    dest: "{{ weather_platform_dir }}/nginx.conf"
+    mode: "0644"
+
+- name: Install the compose file
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../compose/docker-compose.prod.yaml"
+    dest: "{{ weather_platform_dir }}/docker-compose.yaml"
+    mode: "0644"
+
+- name: Check whether the environment file exists
+  ansible.builtin.stat:
+    path: "{{ weather_platform_dir }}/.env"
+  register: weather_platform_env
+
+- name: Require the versions that the first deployment runs
+  ansible.builtin.assert:
+    that:
+      - weather_platform_backend_version | length > 0
+      - weather_platform_frontend_version | length > 0
+    fail_msg: >-
+      Set weather_platform_backend_version and weather_platform_frontend_version to
+      image tags already published to the registry.
+  when: not weather_platform_env.stat.exists
+
+# force: false keeps the versions the pipelines wrote. Rendering them again would
+# roll production back to the values in group_vars.
+- name: Install the environment file
+  ansible.builtin.copy:
+    dest: "{{ weather_platform_dir }}/.env"
+    mode: "0644"
+    force: false
+    content: |
+      ACR_NAME={{ weather_platform_acr_name }}
+      ACR_LOGIN_SERVER={{ weather_platform_acr_login_server }}
+      BACKEND_VERSION={{ weather_platform_backend_version }}
+      FRONTEND_VERSION={{ weather_platform_frontend_version }}
+
+- name: Install the deploy script
+  ansible.builtin.copy:
+    src: deploy.sh
+    dest: "{{ weather_platform_dir }}/deploy.sh"
+    mode: "0755"
+
+- name: Sign in to Azure with the machine identity
+  ansible.builtin.command: az login --identity --output none
+  changed_when: false
+
+- name: Sign in to the registry
+  ansible.builtin.command: az acr login --name {{ weather_platform_acr_name }}
+  changed_when: false
+
+- name: Start the stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ weather_platform_dir }}"
+    state: present
+    pull: missing
