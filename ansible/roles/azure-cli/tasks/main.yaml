@@ -1,0 +1,51 @@
+---
+# The VM pulls images from the registry with its managed identity, through `az acr login`.
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name: "{{ azure_cli_prerequisites }}"
+    state: present
+    update_cache: true
+
+- name: Create keyrings directory
+  ansible.builtin.file:
+    path: "{{ azure_cli_keyring_path | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Download Microsoft GPG key
+  ansible.builtin.get_url:
+    url: "{{ azure_cli_gpg_url }}"
+    dest: "{{ azure_cli_keyring_path }}"
+    mode: "0644"
+
+- name: Get dpkg architecture
+  ansible.builtin.command: dpkg --print-architecture
+  register: dpkg_architecture
+  changed_when: false
+
+- name: Add Azure CLI apt repository
+  ansible.builtin.deb822_repository:
+    name: azure-cli
+    types: deb
+    uris: "{{ azure_cli_repo_uri }}"
+    suites: "{{ azure_cli_suite }}"
+    components: "{{ azure_cli_repo_component }}"
+    architectures: "{{ dpkg_architecture.stdout }}"
+    signed_by: "{{ azure_cli_keyring_path }}"
+    state: present
+    enabled: true
+
+- name: Install Azure CLI
+  ansible.builtin.apt:
+    name: azure-cli
+    state: present
+    update_cache: true
+
+- name: Get Azure CLI version
+  ansible.builtin.command: az version --query '"azure-cli"' --output tsv
+  register: azure_cli_version_output
+  changed_when: false
+
+- name: Report installed version
+  ansible.builtin.debug:
+    msg: "azure-cli {{ azure_cli_version_output.stdout }}"
