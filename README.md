@@ -364,12 +364,10 @@ The **first connection** records the VM's host key in `~/.ssh/known_hosts`. A
 **different key later** stops the run. That is expected only if the VM was
 **replaced**: then remove the old entry with `ssh-keygen -R <public_fqdn>`.
 
-**No reboot** happens by default. When an upgrade needs one, for example after a
-**new kernel**, request it explicitly:
-
-```sh
-ansible-playbook playbooks/configure.yaml -e update_os_reboot_if_required=true
-```
+The VM **reboots on its own** when an upgrade needs it, for example after a
+**new kernel**, and only then: the role checks for `/var/run/reboot-required`
+first. Set `update_os_reboot_if_required` to `false` in the role's defaults to
+keep the reboot manual.
 
 ## Edge proxy
 
