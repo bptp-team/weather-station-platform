@@ -1,0 +1,4 @@
+---
+# The role names carry hyphens, as in the homelab repository these roles came from.
+skip_list:
+  - role-name
