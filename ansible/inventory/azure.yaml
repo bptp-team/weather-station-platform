@@ -1,0 +1,8 @@
+---
+all:
+  children:
+    weather_station:
+      hosts:
+        weather-station-vm:
+          # `public_fqdn` output of terraform/.
+          ansible_host: weather-station.mexicocentral.cloudapp.azure.com
