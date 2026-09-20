@@ -1,0 +1,51 @@
+name: Validate infrastructure
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.2"
+
+      - name: Check formatting
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      # The remote state needs Azure credentials, and validation does not need the state.
+      - name: Validate the configuration
+        run: |
+          terraform -chdir=terraform init -backend=false
+          terraform -chdir=terraform validate
+
+  ansible:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint
+
+      - name: Install the collections the roles use
+        run: ansible-galaxy collection install -r requirements.yaml
+        working-directory: ansible
+
+      - name: Lint the roles and playbooks
+        run: ansible-lint
+        working-directory: ansible
