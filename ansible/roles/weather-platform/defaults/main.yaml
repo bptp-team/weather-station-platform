@@ -1,0 +1,12 @@
+---
+weather_platform_dir: /opt/weather-station
+
+weather_platform_acr_name: weatherstationacr
+weather_platform_acr_login_server: weatherstationacr.azurecr.io
+
+# Only used to create .env on the first run. After that the pipelines own the file,
+# and these values are ignored. See "Deployment" in the README.
+weather_platform_backend_version: ""
+weather_platform_frontend_version: ""
+
+weather_platform_mosquitto_uid: 1883
