@@ -1,0 +1,8 @@
+---
+- name: Deploy the weather station stack
+  hosts: weather_station
+  gather_facts: true
+  become: true
+
+  roles:
+    - weather-platform
