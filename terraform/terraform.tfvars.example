@@ -17,3 +17,6 @@ dns_label = "weather-station"
 # Must be globally unique. Lowercase letters and digits only, no hyphens.
 # Check availability with: az acr check-name --name weatherstationacr
 acr_name = "weatherstationacr"
+
+# GitHub organization or user that owns the application repositories.
+github_owner = "bptp-team"
