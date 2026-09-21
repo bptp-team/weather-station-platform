@@ -174,13 +174,14 @@ resource "azurerm_user_assigned_identity" "frontend_cd" {
   tags                = local.tags
 }
 
-# The subject must match the repository and the GitHub environment exactly.
+# Repositories created after 15 July 2026 present an immutable subject, which carries
+# the numeric owner and repository IDs. See "Deployment identities" in the README.
 resource "azurerm_federated_identity_credential" "backend_cd" {
   name                      = "github-production"
   user_assigned_identity_id = azurerm_user_assigned_identity.backend_cd.id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = "https://token.actions.githubusercontent.com"
-  subject                   = "repo:${var.github_owner}/weather-station-backend:environment:production"
+  subject                   = "repo:${var.github_owner}@${var.github_owner_id}/weather-station-backend@${var.github_backend_repo_id}:environment:production"
 }
 
 resource "azurerm_federated_identity_credential" "frontend_cd" {
@@ -188,7 +189,7 @@ resource "azurerm_federated_identity_credential" "frontend_cd" {
   user_assigned_identity_id = azurerm_user_assigned_identity.frontend_cd.id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = "https://token.actions.githubusercontent.com"
-  subject                   = "repo:${var.github_owner}/weather-station-frontend:environment:production"
+  subject                   = "repo:${var.github_owner}@${var.github_owner_id}/weather-station-frontend@${var.github_frontend_repo_id}:environment:production"
 }
 
 resource "azurerm_role_assignment" "backend_cd_acr_push" {
