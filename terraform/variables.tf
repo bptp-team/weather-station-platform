@@ -37,3 +37,8 @@ variable "acr_name" {
     error_message = "Use lowercase letters and digits only, between 5 and 50 characters."
   }
 }
+
+variable "github_owner" {
+  description = "GitHub organization or user that owns the application repositories."
+  type        = string
+}
