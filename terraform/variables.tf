@@ -42,3 +42,18 @@ variable "github_owner" {
   description = "GitHub organization or user that owns the application repositories."
   type        = string
 }
+
+variable "github_owner_id" {
+  description = "Numeric ID of the GitHub owner, used by the immutable OIDC subject."
+  type        = string
+}
+
+variable "github_backend_repo_id" {
+  description = "Numeric ID of the backend repository, used by the immutable OIDC subject."
+  type        = string
+}
+
+variable "github_frontend_repo_id" {
+  description = "Numeric ID of the frontend repository, used by the immutable OIDC subject."
+  type        = string
+}
