@@ -155,3 +155,87 @@ resource "azurerm_role_assignment" "vm_acr_pull" {
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
 }
+
+# Deployment identities
+
+# The tenant forbids application registrations, so the pipelines authenticate with
+# user-assigned identities, which are subscription resources.
+resource "azurerm_user_assigned_identity" "backend_cd" {
+  name                = "weather-station-backend-cd"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  tags                = local.tags
+}
+
+resource "azurerm_user_assigned_identity" "frontend_cd" {
+  name                = "weather-station-frontend-cd"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  tags                = local.tags
+}
+
+# The subject must match the repository and the GitHub environment exactly.
+resource "azurerm_federated_identity_credential" "backend_cd" {
+  name                      = "github-production"
+  user_assigned_identity_id = azurerm_user_assigned_identity.backend_cd.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = "https://token.actions.githubusercontent.com"
+  subject                   = "repo:${var.github_owner}/weather-station-backend:environment:production"
+}
+
+resource "azurerm_federated_identity_credential" "frontend_cd" {
+  name                      = "github-production"
+  user_assigned_identity_id = azurerm_user_assigned_identity.frontend_cd.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = "https://token.actions.githubusercontent.com"
+  subject                   = "repo:${var.github_owner}/weather-station-frontend:environment:production"
+}
+
+resource "azurerm_role_assignment" "backend_cd_acr_push" {
+  scope                            = azurerm_container_registry.main.id
+  role_definition_name             = "AcrPush"
+  principal_id                     = azurerm_user_assigned_identity.backend_cd.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+resource "azurerm_role_assignment" "frontend_cd_acr_push" {
+  scope                            = azurerm_container_registry.main.id
+  role_definition_name             = "AcrPush"
+  principal_id                     = azurerm_user_assigned_identity.frontend_cd.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+# Virtual Machine Contributor would also allow deleting the VM, and its disk holds
+# the InfluxDB data. Run Command alone is enough to deploy.
+resource "azurerm_role_definition" "deployer" {
+  name        = "Weather Station Deployer"
+  scope       = azurerm_linux_virtual_machine.main.id
+  description = "Runs deployment commands on the weather station VM."
+
+  permissions {
+    actions = [
+      "Microsoft.Compute/virtualMachines/read",
+      "Microsoft.Compute/virtualMachines/runCommand/action",
+    ]
+  }
+
+  assignable_scopes = [azurerm_linux_virtual_machine.main.id]
+}
+
+resource "azurerm_role_assignment" "backend_cd_deployer" {
+  scope                            = azurerm_linux_virtual_machine.main.id
+  role_definition_id               = azurerm_role_definition.deployer.role_definition_resource_id
+  principal_id                     = azurerm_user_assigned_identity.backend_cd.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+resource "azurerm_role_assignment" "frontend_cd_deployer" {
+  scope                            = azurerm_linux_virtual_machine.main.id
+  role_definition_id               = azurerm_role_definition.deployer.role_definition_resource_id
+  principal_id                     = azurerm_user_assigned_identity.frontend_cd.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
