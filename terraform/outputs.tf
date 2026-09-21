@@ -27,3 +27,13 @@ output "acr_login_server" {
   description = "Registry hostname used in image tags."
   value       = azurerm_container_registry.main.login_server
 }
+
+output "backend_cd_client_id" {
+  description = "AZURE_CLIENT_ID for the weather-station-backend repository."
+  value       = azurerm_user_assigned_identity.backend_cd.client_id
+}
+
+output "frontend_cd_client_id" {
+  description = "AZURE_CLIENT_ID for the weather-station-frontend repository."
+  value       = azurerm_user_assigned_identity.frontend_cd.client_id
+}
