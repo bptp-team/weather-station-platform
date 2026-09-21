@@ -20,3 +20,11 @@ acr_name = "weatherstationacr"
 
 # GitHub organization or user that owns the application repositories.
 github_owner = "bptp-team"
+
+# Numeric IDs used by the immutable OIDC subject.
+# curl -s https://api.github.com/orgs/bptp-team | jq .id
+github_owner_id = "325414194"
+# curl -s https://api.github.com/repos/bptp-team/weather-station-backend | jq .id
+github_backend_repo_id = "1358619417"
+# curl -s https://api.github.com/repos/bptp-team/weather-station-frontend | jq .id
+github_frontend_repo_id = "1359339640"
