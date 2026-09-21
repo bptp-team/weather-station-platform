@@ -32,9 +32,9 @@ This repository holds the **infrastructure** the rest of the **Weather Station**
 
 | Directory | Purpose |
 | --------- | ------- |
-| `compose/` | **MQTT broker** and **time-series database**, run with **Docker Compose** |
+| `compose/` | The **Docker Compose** files: the two services for **local development**, and the **whole stack** for production |
 | `terraform/` | **Azure** resources that host the system: **VM**, **network** and **container registry** |
-| `ansible/` | **Packages** installed on that VM: **Docker** and **Azure CLI** |
+| `ansible/` | **Packages** installed on that VM, and the **production stack** it runs |
 | `edge/` | **Nginx** in front of the **frontend** and **backend**: **TLS** and **routing** |
 
 The two halves are **independent**. `compose/` is what you run for **local
@@ -316,9 +316,9 @@ terraform -chdir=terraform output
 
 ### What is not automated
 
-Terraform provisions the **host and nothing more**. The packages are installed
-by `ansible/` — see [Host configuration](#host-configuration). Copying this
-compose file and starting the services on the VM are still **manual**.
+Terraform provisions the **host and nothing more**. Everything above it comes
+from `ansible/`: the packages, the production stack and each release. See
+[Host configuration](#host-configuration).
 
 ## Host configuration
 
@@ -331,6 +331,7 @@ only**: it does not copy files or start containers.
 | `base-packages` | Installs `git`, `curl`, `jq` and other utilities, and sets the **timezone** |
 | `docker-install` | Installs **Docker Engine** with **Compose v2** and **Buildx** from **Docker's repository**, rotates container logs and adds `azureuser` to the `docker` group |
 | `azure-cli` | Installs the **Azure CLI** from **Microsoft's repository** |
+| `weather-platform` | Installs the **production stack** and starts it — run by `deploy.yaml`, not by `configure.yaml` |
 
 The **Azure CLI** is what lets the VM pull from the registry with its **managed
 identity**, without any stored password:
@@ -369,6 +370,60 @@ The VM **reboots on its own** when an upgrade needs it, for example after a
 first. Set `update_os_reboot_if_required` to `false` in the role's defaults to
 keep the reboot manual.
 
+### Deployment
+
+`playbooks/deploy.yaml` runs the `weather-platform` role, which puts the whole
+stack in `/opt/weather-station/` on the VM:
+
+| File | Contents |
+| ---- | -------- |
+| `docker-compose.yaml` | Copied from `compose/docker-compose.prod.yaml`: the **five services** |
+| `.env` | The **registry** and the **version** of each application image |
+| `nginx.conf` | Copied from `edge/` |
+| `mosquitto/config/mosquitto.conf` | Copied from `compose/` |
+| `deploy.sh` | Puts **one new version** in production |
+
+Every file is copied **as it is in this repository** — the role renders no
+templates, so what you read here is what runs on the VM. The two application
+images are named by **version**, never `latest`:
+
+```yaml
+image: ${ACR_LOGIN_SERVER}/weather-station-backend:${BACKEND_VERSION:?}
+```
+
+The `:?` makes Docker Compose **refuse to start** when the variable is missing,
+instead of quietly falling back to `latest`.
+
+The **first run** needs both versions, which must already be published to the
+registry:
+
+```sh
+ansible-playbook playbooks/deploy.yaml \
+    -e weather_platform_backend_version=1.0.0 \
+    -e weather_platform_frontend_version=1.0.0
+```
+
+After that, `.env` is **never rewritten** by Ansible — the template carries
+`force: false`. **The pipelines own those two lines.** Rendering them again
+would roll production back to whatever the defaults say.
+
+### Releases
+
+`deploy.sh` is what the **application pipelines** call, through
+**`az vm run-command`**, so the VM needs **no inbound SSH** for a release:
+
+```sh
+/opt/weather-station/deploy.sh backend 1.0.2
+```
+
+It rewrites that version in `.env`, signs in to the registry with the VM's
+**managed identity**, pulls the image and recreates **only that service**. It
+**builds nothing**: the image must already exist in the registry.
+
+Each application is released on its own, by **tagging its repository**. To roll
+back, run the script with the **previous version** — the image is still in the
+registry, so nothing is rebuilt.
+
 ## Edge proxy
 
 `edge/nginx.conf` is the **only public entry** to the web application. It
@@ -392,9 +447,10 @@ port `80`, which only the VM has.
 - `server_name` in `edge/nginx.conf` **must match** the `public_fqdn` output.
   The file carries `weather-station.mexicocentral.cloudapp.azure.com`, the name
   produced by the example `dns_label`.
-- Build the **frontend** with
-  `--build-arg VITE_WEATHER_API_URL=https://<public_fqdn>`. The API is then on
-  the **same origin** as the page, so `WEATHER_ALLOWED_ORIGINS` can stay empty.
+- Build the **frontend** **without** `VITE_WEATHER_API_URL`. Its empty default
+  leaves the API calls **relative**, so they resolve against the page's own
+  origin — which the edge serves. The same image then works behind **any
+  domain**, and `WEATHER_ALLOWED_ORIGINS` can stay empty.
 - Run the **backend** with `-e FORWARDED_ALLOW_IPS='*'`. Without it, the server
   **ignores** the `X-Forwarded-*` headers the edge sends, because requests
   arrive from the **Docker bridge**, not from `127.0.0.1`. Trusting every
@@ -402,19 +458,16 @@ port `80`, which only the VM has.
 
 ### Start
 
-```sh
-docker run -d --name edge --restart unless-stopped --network host \
-    -v "$PWD/edge/nginx.conf:/etc/nginx/nginx.conf:ro" \
-    -v edge-acme:/var/cache/nginx \
-    nginx:1.30.4
-```
+The edge is **one of the services** in the production stack, so
+[`deploy.yaml`](#deployment) starts it along with the rest. Its two settings
+that matter are already in the compose file:
 
-- `--network host` lets the edge reach `127.0.0.1:8000` and `127.0.0.1:8080`
+- **`network_mode: host`** lets it reach `127.0.0.1:8000` and `127.0.0.1:8080`
   and listen on ports `80` and `443` of the VM directly.
-- The `edge-acme` volume **must be kept**. It stores the **ACME account**, the
+- The **`edge-acme` volume must be kept**. It stores the **ACME account**, the
   **certificate** and its **private key**. Without it, every restart requests a
   **new certificate**, and Let's Encrypt allows only **5 identical
-  certificates per week**.
+  certificates per week**. `docker compose down -v` deletes it.
 
 On the **first deployment**, point `uri` in `edge/nginx.conf` at the
 **staging** directory, `https://acme-staging-v02.api.letsencrypt.org/directory`,
