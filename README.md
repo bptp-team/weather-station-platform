@@ -172,8 +172,18 @@ The service runs **InfluxDB 3 Core** with **authorization turned off**:
 Data is kept in the **named volume** `influxdb3-data`, which **survives**
 `docker compose down` and is removed only by `down -v`.
 
-**Databases are created on first write** — no setup step is required. The
-**backend** defaults already target this service:
+At backend startup, the configured database is created with a **15-day data
+retention period**. Points older than 15 days expire under this policy. This
+applies only to newly created databases; an existing database is left unchanged
+and requires a separate migration to adopt the policy. The **backend** defaults
+already target this service:
+
+Retention is configured by the **backend**, not by Docker Compose. The production
+Compose file starts the backend, which requests the 15-day policy at startup when
+creating a new database. The development Compose file starts only Mosquitto and
+InfluxDB, so the backend must be run separately for this initialization to occur.
+No Compose retention setting is needed; deploy the updated backend to apply the
+policy to databases created from then on.
 
 ```text
 WEATHER_INFLUX_URL=http://127.0.0.1:8181
