@@ -108,9 +108,13 @@ docker run --rm --network host eclipse-mosquitto:2.1-alpine \
 ### Stop
 
 ```sh
-docker compose -f compose/docker-compose.yaml down       # keeps the stored data
-docker compose -f compose/docker-compose.yaml down -v    # also deletes it
+docker compose -f compose/docker-compose.yaml down       # keeps local data
+docker compose -f compose/docker-compose.yaml down -v    # also removes named volumes
 ```
+
+Both services store runtime data in **bind-mounted directories** under
+`compose/`. These directories survive both commands above; `down -v` removes
+Docker-managed named volumes, not bind-mounted host directories.
 
 ## MQTT broker
 
@@ -132,7 +136,8 @@ The **explicit listener** matters. **Mosquitto 2.0 and later** accept only
 **ESP32 boards would be refused**.
 
 **Persistence** writes retained messages and queued **QoS** messages to
-`compose/mosquitto/data/`, so they **survive a restart**. Logs go to
+`compose/mosquitto/data/`, so they **survive container restarts and removal**.
+The directory is local runtime data and is **excluded from Git**. Logs go to
 **stdout**, where the **Docker logging driver** collects them:
 
 ```sh
@@ -169,8 +174,11 @@ The service runs **InfluxDB 3 Core** with **authorization turned off**:
 --without-auth
 ```
 
-Data is kept in the **named volume** `influxdb3-data`, which **survives**
-`docker compose down` and is removed only by `down -v`.
+Data is stored in the **bind-mounted directory** `compose/influxdb3-data/` on
+the host, mapped to `/var/lib/influxdb3` in the container. The directory is
+**excluded from Git** and survives container restarts, `docker compose down`,
+and `docker compose down -v`; remove it from the host only when you intend to
+delete the local database data.
 
 At backend startup, the configured database is created with a **15-day data
 retention period**. Points older than 15 days expire under this policy. This

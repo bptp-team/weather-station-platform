@@ -1,6 +1,7 @@
 .env
 compose/mosquitto/data/*
 compose/mosquitto/log/*
+compose/influxdb3-data/*
 
 
 # Terraform
