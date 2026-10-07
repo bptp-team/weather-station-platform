@@ -62,6 +62,22 @@
       ACR_LOGIN_SERVER={{ weather_platform_acr_login_server }}
       BACKEND_VERSION={{ weather_platform_backend_version }}
       FRONTEND_VERSION={{ weather_platform_frontend_version }}
+      INFLUXDB_DATABASE={{ weather_platform_influx_database }}
+      INFLUXDB_RETENTION_PERIOD={{ weather_platform_influx_retention_period }}
+      INFLUXDB_QUERY_FILE_LIMIT={{ weather_platform_influx_query_file_limit }}
+
+- name: Reconcile InfluxDB settings
+  ansible.builtin.lineinfile:
+    path: "{{ weather_platform_dir }}/.env"
+    regexp: "^{{ item.name }}="
+    line: "{{ item.name }}={{ item.value }}"
+  loop:
+    - name: INFLUXDB_DATABASE
+      value: "{{ weather_platform_influx_database }}"
+    - name: INFLUXDB_RETENTION_PERIOD
+      value: "{{ weather_platform_influx_retention_period }}"
+    - name: INFLUXDB_QUERY_FILE_LIMIT
+      value: "{{ weather_platform_influx_query_file_limit }}"
 
 - name: Install the deploy script
   ansible.builtin.copy:

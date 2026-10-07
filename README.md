@@ -62,12 +62,19 @@ the host: both services run entirely from their **official images**.
 
 ### Configuration
 
-The stack reads **one variable**, `MQTT_PORT`, which sets the **host port**
-mapped to the broker:
+The local stack reads the variables in `compose/.env.example`:
 
 ```sh
 cp compose/.env.example compose/.env
 ```
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `MQTT_PORT` | `1999` | Host port mapped to the Mosquitto broker |
+| `INFLUXDB_PORT` | `2000` | Reserved; the Compose file currently publishes InfluxDB on `8181` directly, so this value has no effect |
+| `INFLUXDB_DATABASE` | `weather-station-db` | Database created by the InfluxDB initializer and used by the backend |
+| `INFLUXDB_RETENTION_PERIOD` | `15d` | Retention period applied when the database is first created |
+| `INFLUXDB_QUERY_FILE_LIMIT` | `600` | InfluxDB server-wide maximum Parquet files accessed by a query |
 
 **The file must sit next to `docker-compose.yaml`, inside `compose/`.** Docker
 Compose resolves `.env` from the **project directory** — the directory holding
@@ -85,9 +92,6 @@ docker compose -f compose/docker-compose.yaml config | grep -A2 'target: 1883'
 
 Passing the file explicitly with `--env-file <path>` also works and ignores the
 project directory entirely.
-
-> `INFLUXDB_PORT` also appears in `.env.example`, but the compose file publishes
-> `8181` directly. Changing that variable has **no effect**.
 
 ### Start
 
@@ -180,24 +184,31 @@ the host, mapped to `/var/lib/influxdb3` in the container. The directory is
 and `docker compose down -v`; remove it from the host only when you intend to
 delete the local database data.
 
-At backend startup, the configured database is created with a **15-day data
-retention period**. Points older than 15 days expire under this policy. This
-applies only to newly created databases; an existing database is left unchanged
-and requires a separate migration to adopt the policy. The **backend** defaults
-already target this service:
+The `influxdb-init` one-shot service creates the configured database through the
+InfluxDB API before the production backend starts. In local development, `docker
+compose up` runs the same initializer. It sets a **15-day data retention period**
+by default; points older than 15 days expire under this policy. If the database
+already exists, the initializer accepts the conflict and leaves it unchanged.
+Changing retention on an existing database requires a separate migration.
 
-Retention is configured by the **backend**, not by Docker Compose. The production
-Compose file starts the backend, which requests the 15-day policy at startup when
-creating a new database. The development Compose file starts only Mosquitto and
-InfluxDB, so the backend must be run separately for this initialization to occur.
-No Compose retention setting is needed; deploy the updated backend to apply the
-policy to databases created from then on.
+The server's Parquet file-access limit is **600 files per query** by default
+(InfluxDB 3 Core's default is 432). This is a server-wide startup setting, not a
+per-database property. A higher limit can increase query latency and memory use.
+Adjust `INFLUXDB_QUERY_FILE_LIMIT` cautiously and recreate/restart InfluxDB for
+the setting to take effect.
+
+Local settings live in `compose/.env`:
 
 ```text
-WEATHER_INFLUX_URL=http://127.0.0.1:8181
-WEATHER_INFLUX_DATABASE=weather-station-db
-WEATHER_INFLUX_MEASUREMENT=weather_reading
+INFLUXDB_DATABASE=weather-station-db
+INFLUXDB_RETENTION_PERIOD=15d
+INFLUXDB_QUERY_FILE_LIMIT=600
 ```
+
+Copy `compose/.env.example` to create the local file. Production values are
+managed by the `weather-platform` Ansible role defaults. The backend receives
+the configured database name from Compose and no longer creates or configures
+the database itself.
 
 Write and read a point by hand:
 

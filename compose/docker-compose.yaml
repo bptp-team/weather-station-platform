@@ -30,6 +30,20 @@ services:
       - --data-dir
       - /var/lib/influxdb3
       - --without-auth
+      - --query-file-limit
+      - "${INFLUXDB_QUERY_FILE_LIMIT:-600}"
+
+  influxdb-init:
+    image: curlimages/curl:8.12.1
+    depends_on:
+      - influxdb3
+    environment:
+      INFLUXDB_URL: http://influxdb3:8181
+      INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
+      INFLUXDB_RETENTION_PERIOD: ${INFLUXDB_RETENTION_PERIOD:-15d}
+    volumes:
+      - ./init-influxdb.sh:/scripts/init-influxdb.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/init-influxdb.sh"]
 
 volumes:
   mosquitto:
