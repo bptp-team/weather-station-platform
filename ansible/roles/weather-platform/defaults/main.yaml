@@ -10,3 +10,7 @@ weather_platform_backend_version: ""
 weather_platform_frontend_version: ""
 
 weather_platform_mosquitto_uid: 1883
+
+weather_platform_influx_database: weather-station-db
+weather_platform_influx_retention_period: 15d
+weather_platform_influx_query_file_limit: 600

@@ -28,17 +28,36 @@ services:
       - --data-dir
       - /var/lib/influxdb3
       - --without-auth
+      - --query-file-limit
+      - "${INFLUXDB_QUERY_FILE_LIMIT:-600}"
+
+  influxdb-init:
+    image: curlimages/curl:8.12.1
+    depends_on:
+      - influxdb3
+    environment:
+      INFLUXDB_URL: http://influxdb3:8181
+      INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
+      INFLUXDB_RETENTION_PERIOD: ${INFLUXDB_RETENTION_PERIOD:-15d}
+    volumes:
+      - ./init-influxdb.sh:/scripts/init-influxdb.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/init-influxdb.sh"]
 
   backend:
     image: ${ACR_LOGIN_SERVER}/weather-station-backend:${BACKEND_VERSION:?}
     container_name: backend
     restart: unless-stopped
     depends_on:
-      - mosquitto
-      - influxdb3
+      mosquitto:
+        condition: service_started
+      influxdb3:
+        condition: service_started
+      influxdb-init:
+        condition: service_completed_successfully
     environment:
       WEATHER_MQTT_HOST: mosquitto
       WEATHER_INFLUX_URL: http://influxdb3:8181
+      WEATHER_INFLUX_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
       # The edge reaches the backend from the Docker bridge, not from 127.0.0.1.
       FORWARDED_ALLOW_IPS: "*"
     ports:
