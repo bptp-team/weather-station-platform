@@ -371,13 +371,38 @@ terraform -chdir=terraform output
 
 | Output | Used for |
 | ------ | -------- |
-| `public_ip_address` | Reaching the VM |
-| `public_fqdn` | `<dns_label>.mexicocentral.cloudapp.azure.com` — the **broker address** the firmware connects to and `server_name` in `edge/nginx.conf` |
+| `public_ip_address` | The target of the **A record** of the project domain; see [Domain](#domain) |
+| `public_fqdn` | `<dns_label>.mexicocentral.cloudapp.azure.com`, the name Azure generates; a second name in the broker certificate |
 | `acr_login_server` | **Registry hostname** used in image tags |
 | `acr_name` | `az acr login --name <value>` |
 | `key_vault_name` | The scripts in [Secrets](#secrets) and `weather_platform_key_vault_name` in the `weather-platform` role |
 | `resource_group_name` | Scoping `az` commands |
 | `vm_name` | Scoping `az` commands |
+
+### Domain
+
+The system answers on **`weather-station.thomaspalma.com.br`**: the website, the
+API under `/api/` and the MQTT broker on port `8883` all use that name. It is a
+subdomain of `thomaspalma.com.br`, whose DNS is hosted by **Registro.br**, so
+the record is created **by hand** in the Registro.br panel, not by Terraform:
+
+| Name | Type | Value |
+| ---- | ---- | ----- |
+| `weather-station` | `A` | The `public_ip_address` output |
+
+The public IP is **static**, and deallocating the VM keeps it, so the record
+only changes if the public IP resource is destroyed and created again. Check
+the record from the operator workstation:
+
+```sh
+dig +short A weather-station.thomaspalma.com.br
+```
+
+The answer must be the `public_ip_address` output. The same name appears in
+`server_name` in `edge/nginx.conf`, in `ansible_host` in
+`ansible/inventory/azure.yaml`, in the broker certificate, in `MQTT_HOSTS` in
+the firmware and in the `PUBLIC_FQDN` variable of the backend and frontend
+repositories.
 
 ### What is not automated
 
@@ -411,6 +436,7 @@ the repository root:
 
 ```sh
 scripts/issue-mqtt-certificate.sh "$(terraform -chdir=terraform output -raw key_vault_name)" \
+    weather-station.thomaspalma.com.br \
     "$(terraform -chdir=terraform output -raw public_fqdn)"
 ```
 
@@ -471,8 +497,8 @@ deployment**; containers that are already running are not affected.
 It requires **ansible-core 2.15 or later**. SSH reaches the VM only from
 `ssh_allowed_cidrs`, as `azureuser`, with the key set in `ssh_public_key`.
 
-`ansible_host` in `ansible/inventory/azure.yaml` **must match** the
-`public_fqdn` output. Then:
+`ansible_host` in `ansible/inventory/azure.yaml` is the project domain, so its
+**A record must already exist**; see [Domain](#domain). Then:
 
 ```sh
 cd ansible
@@ -485,7 +511,8 @@ Run the commands **from `ansible/`**: Ansible reads `ansible.cfg` from the
 
 The **first connection** records the VM's host key in `~/.ssh/known_hosts`. A
 **different key later** stops the run. That is expected only if the VM was
-**replaced**: then remove the old entry with `ssh-keygen -R <public_fqdn>`.
+**replaced**: then remove the old entry with
+`ssh-keygen -R weather-station.thomaspalma.com.br`.
 
 The VM **reboots on its own** when an upgrade needs it, for example after a
 **new kernel**, and only then: the role checks for `/var/run/reboot-required`
@@ -579,9 +606,10 @@ port `80`, which only the VM has.
 
 ### Before starting
 
-- `server_name` in `edge/nginx.conf` **must match** the `public_fqdn` output.
-  The file carries `weather-station.mexicocentral.cloudapp.azure.com`, the name
-  produced by the example `dns_label`.
+- `server_name` in `edge/nginx.conf` is the project domain,
+  `weather-station.thomaspalma.com.br`, and its **A record must already resolve** to the
+  VM: Let's Encrypt validates the name over port `80` before issuing the
+  certificate. See [Domain](#domain).
 - Build the **frontend** **without** `VITE_WEATHER_API_URL`. Its empty default
   leaves the API calls **relative**, so they resolve against the page's own
   origin — which the edge serves. The same image then works behind **any
@@ -614,10 +642,10 @@ discarded.
 ### Verify
 
 ```sh
-curl -I http://<public_fqdn>                                    # 301 to https
-curl https://<public_fqdn>/healthz                              # ok, from the frontend
-curl -N https://<public_fqdn>/api/v1/readings/station-01/stream # live readings
-docker logs edge                                                # access log, real client addresses
+curl -I http://weather-station.thomaspalma.com.br                                    # 301 to https
+curl https://weather-station.thomaspalma.com.br/healthz                              # ok, from the frontend
+curl -N https://weather-station.thomaspalma.com.br/api/v1/readings/station-01/stream # live readings
+docker logs edge                                                                     # access log, real client addresses
 ```
 
 ## Security
