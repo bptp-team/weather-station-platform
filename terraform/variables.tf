@@ -4,7 +4,7 @@ variable "subscription_id" {
 }
 
 variable "ssh_allowed_cidrs" {
-  description = "CIDRs allowed to reach port 22. Use your own IP with a /32 mask."
+  description = "CIDRs allowed to reach port 22 and the Key Vault. Use your own IP with a /32 mask."
   type        = list(string)
 
   validation {
@@ -35,6 +35,16 @@ variable "acr_name" {
   validation {
     condition     = can(regex("^[a-z0-9]{5,50}$", var.acr_name))
     error_message = "Use lowercase letters and digits only, between 5 and 50 characters."
+  }
+}
+
+variable "key_vault_name" {
+  description = "Globally unique name for the Key Vault. Becomes https://<name>.vault.azure.net"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-zA-Z](-?[a-zA-Z0-9])+$", var.key_vault_name)) && length(var.key_vault_name) >= 3 && length(var.key_vault_name) <= 24
+    error_message = "Use 3 to 24 letters, digits and single hyphens, starting with a letter and ending with a letter or digit."
   }
 }
 
