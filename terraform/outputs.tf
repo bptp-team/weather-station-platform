@@ -9,12 +9,12 @@ output "vm_name" {
 }
 
 output "public_ip_address" {
-  description = "Public IP address of the VM."
+  description = "Public IP address of the VM, the target of the project domain's A record."
   value       = azurerm_public_ip.main.ip_address
 }
 
 output "public_fqdn" {
-  description = "Public DNS name of the VM. Used by the ESP32 firmware and by server_name in edge/nginx.conf."
+  description = "Azure-generated DNS name of the VM. The project domain points at public_ip_address instead."
   value       = azurerm_public_ip.main.fqdn
 }
 
