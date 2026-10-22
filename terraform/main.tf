@@ -3,7 +3,14 @@ locals {
     project    = "weather-station"
     managed_by = "terraform"
   }
+
+  key_vault_allowed_ips = concat(
+    [azurerm_public_ip.main.ip_address],
+    [for cidr in var.ssh_allowed_cidrs : trimsuffix(cidr, "/32")],
+  )
 }
+
+data "azurerm_client_config" "current" {}
 
 resource "azurerm_resource_group" "main" {
   name     = "weather-station-rg"
@@ -68,13 +75,13 @@ resource "azurerm_network_security_group" "main" {
 
   # The ESP32 boards connect from dynamic addresses.
   security_rule {
-    name                       = "allow-mqtt"
+    name                       = "allow-mqtt-tls"
     priority                   = 120
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = "1883"
+    destination_port_range     = "8883"
     source_address_prefix      = "Internet"
     destination_address_prefix = "*"
   }
@@ -154,6 +161,40 @@ resource "azurerm_role_assignment" "vm_acr_pull" {
   principal_id                     = azurerm_linux_virtual_machine.main.identity[0].principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
+}
+
+# Secrets
+
+resource "azurerm_key_vault" "main" {
+  name                       = var.key_vault_name
+  resource_group_name        = azurerm_resource_group.main.name
+  location                   = azurerm_resource_group.main.location
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  rbac_authorization_enabled = true
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+  tags                       = local.tags
+
+  network_acls {
+    bypass         = "AzureServices"
+    default_action = "Deny"
+    ip_rules       = local.key_vault_allowed_ips
+  }
+}
+
+resource "azurerm_role_assignment" "vm_key_vault_secrets_user" {
+  scope                            = azurerm_key_vault.main.id
+  role_definition_name             = "Key Vault Secrets User"
+  principal_id                     = azurerm_linux_virtual_machine.main.identity[0].principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+resource "azurerm_role_assignment" "operator_key_vault_secrets_officer" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
 
 # Deployment identities
