@@ -1,0 +1,4 @@
+pattern write weather/%u/+
+
+user weather-station-backend
+topic read weather/+/+
