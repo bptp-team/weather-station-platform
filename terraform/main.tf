@@ -4,9 +4,9 @@ locals {
     managed_by = "terraform"
   }
 
-  key_vault_allowed_ips = concat(
-    [azurerm_public_ip.main.ip_address],
-    [for cidr in var.ssh_allowed_cidrs : trimsuffix(cidr, "/32")],
+  key_vault_allowed_cidrs = concat(
+    ["${azurerm_public_ip.main.ip_address}/32"],
+    var.ssh_allowed_cidrs,
   )
 }
 
@@ -179,7 +179,7 @@ resource "azurerm_key_vault" "main" {
   network_acls {
     bypass         = "AzureServices"
     default_action = "Deny"
-    ip_rules       = local.key_vault_allowed_ips
+    ip_rules       = local.key_vault_allowed_cidrs
   }
 }
 
