@@ -18,6 +18,10 @@ dns_label = "weather-station"
 # Check availability with: az acr check-name --name weatherstationacr
 acr_name = "weatherstationacr"
 
+# Must be globally unique. Letters, digits and hyphens, 3 to 24 characters.
+# A name already in use makes apply fail with VaultAlreadyExists.
+key_vault_name = "weather-station-kv"
+
 # GitHub organization or user that owns the application repositories.
 github_owner = "your-org"
 
