@@ -28,6 +28,11 @@ output "acr_login_server" {
   value       = azurerm_container_registry.main.login_server
 }
 
+output "key_vault_name" {
+  description = "Name of the Key Vault that holds the broker secrets."
+  value       = azurerm_key_vault.main.name
+}
+
 output "backend_cd_client_id" {
   description = "AZURE_CLIENT_ID for the weather-station-backend repository."
   value       = azurerm_user_assigned_identity.backend_cd.client_id
