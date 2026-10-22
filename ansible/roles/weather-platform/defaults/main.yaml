@@ -4,12 +4,28 @@ weather_platform_dir: /opt/weather-station
 weather_platform_acr_name: weatherstationacr
 weather_platform_acr_login_server: weatherstationacr.azurecr.io
 
+weather_platform_key_vault_name: weather-station-kv
+
 # Only used to create .env on the first run. After that the pipelines own the file,
 # and these values are ignored. See "Deployment" in the README.
 weather_platform_backend_version: ""
 weather_platform_frontend_version: ""
 
 weather_platform_mosquitto_uid: 1883
+weather_platform_mosquitto_image: eclipse-mosquitto:2.1-alpine
+
+weather_platform_mqtt_backend_username: weather-station-backend
+weather_platform_mqtt_station_ids:
+  - station-01
+weather_platform_mqtt_usernames: "{{ weather_platform_mqtt_station_ids + [weather_platform_mqtt_backend_username] }}"
+
+weather_platform_mqtt_tls_files:
+  - secret: mqtt-server-certificate
+    file: server.crt
+    mode: "0644"
+  - secret: mqtt-server-private-key
+    file: server.key
+    mode: "0600"
 
 weather_platform_influx_database: weather-station-db
 weather_platform_influx_retention_period: 15d
