@@ -4,7 +4,7 @@ services:
     container_name: mosquitto
     restart: unless-stopped
     ports:
-      - "1883:1883"
+      - "8883:8883"
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - ./mosquitto/data:/mosquitto/data
@@ -56,6 +56,8 @@ services:
         condition: service_completed_successfully
     environment:
       WEATHER_MQTT_HOST: mosquitto
+      WEATHER_MQTT_USERNAME: ${MQTT_BACKEND_USERNAME:?}
+      WEATHER_MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD:?}
       WEATHER_INFLUX_URL: http://influxdb3:8181
       WEATHER_INFLUX_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
       # The edge reaches the backend from the Docker bridge, not from 127.0.0.1.
