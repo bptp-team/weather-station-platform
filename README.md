@@ -28,13 +28,14 @@
     />
 </p>
 
-This repository holds the **infrastructure** the rest of the **Weather Station** system depends on. It carries **no application code**: the **firmware**, the **​backend**, and the **frontend** live in their own repositories and connect to what is defined here.
+This repository holds the **infrastructure** the rest of the **Weather Station** system depends on. It carries **no application code**: the **firmware**, the **backend**, and the **frontend** live in their own repositories and connect to what is defined here.
 
 | Directory | Purpose |
 | --------- | ------- |
 | `compose/` | The **Docker Compose** files: the three services for **local development**, and the **whole stack** for production |
-| `terraform/` | **Azure** resources that host the system: **VM**, **network** and **container registry** |
+| `terraform/` | **Azure** resources that host the system: **VM**, **network**, **container registry** and **Key Vault** |
 | `ansible/` | **Packages** installed on that VM, and the **production stack** it runs |
+| `scripts/` | **Operator scripts** that write the broker certificate and passwords to Key Vault |
 | `edge/` | **Nginx** in front of the **frontend** and **backend**: **TLS** and **routing** |
 
 The two halves are **independent**. `compose/` is what you run for **local
@@ -46,7 +47,7 @@ it. `edge/` runs **only in production**, on that machine.
 
 | Service | Image | Port | Role |
 | ------- | ----- | ---- | ---- |
-| `mosquitto` | `eclipse-mosquitto:2.1-alpine` | `1883` | Receives the **sensor readings** published by the **ESP32** boards |
+| `mosquitto` | `eclipse-mosquitto:2.1-alpine` | `1883`, and `8883` with TLS in production | Receives the **sensor readings** published by the **ESP32** boards |
 | `influxdb3` | `influxdb:3-core` | `8181` | Stores the **snapshots** written by the **backend** |
 | `influxdb-init` | `curlimages/curl:8.12.1` | — | Creates the configured InfluxDB database once, then exits |
 
@@ -165,9 +166,35 @@ In `secrets.h`, the **ESP32** must point at the **LAN address of the machine
 running this stack** — **never** `localhost`, which from the board means the
 **board itself**.
 
-**Authentication is disabled.** `allow_anonymous true` lets **any client on the
-network** publish and subscribe, which is acceptable on a **development LAN**
-and **not** on a public address. See [Security](#security).
+**Authentication is disabled in development.** `allow_anonymous true` lets
+**any client on the network** publish and subscribe, which is acceptable on a
+**development LAN** and **not** on a public address. Production uses its own
+configuration, described below.
+
+### Production broker
+
+The VM runs `compose/mosquitto/config/mosquitto.prod.conf`, installed as
+`mosquitto.conf`, with two listeners:
+
+| Listener | Reachable from | Transport | Clients |
+| -------- | -------------- | --------- | ------- |
+| `8883` | **Internet**, published by Compose | **TLS** | The **ESP32** boards |
+| `1883` | The **Compose network** only, never published | Plain TCP | The **backend** |
+
+Both listeners require a **username and password**: `allow_anonymous false`
+applies to every listener. The password file is generated on the VM from Key
+Vault on each deployment; see [Secrets](#secrets).
+
+`compose/mosquitto/config/aclfile` decides what each user may do:
+
+| Rule | Effect |
+| ---- | ------ |
+| `pattern write weather/%u/+` | Each station publishes **only under its own username**: `station-01` writes `weather/station-01/airTemperature` and cannot write `weather/station-02/...` |
+| `user weather-station-backend` + `topic read weather/+/+` | Only the backend **subscribes** to the readings |
+
+A station's **MQTT username is its `DEVICE_ID`**. Adding a station means adding
+its ID to `weather_platform_mqtt_station_ids` in the `weather-platform` role
+defaults and creating its password.
 
 ## InfluxDB
 
@@ -244,6 +271,9 @@ Central is the closest. It requires **Terraform 1.9 or later (1.x)** and the
 | Network interface | `weather-station-nic` | |
 | Virtual machine | `weather-station-vm` | **Ubuntu 24.04 LTS**, `Standard_B2ats_v2`, 30 GB disk |
 | Role assignment | — | Grants the VM **`AcrPull`** on the registry |
+| Key Vault | `var.key_vault_name` | **Standard**, **globally unique**, **RBAC** authorization, reachable only from the VM's public IP and `ssh_allowed_cidrs` |
+| Role assignment | | Grants the VM **`Key Vault Secrets User`** on the vault: it reads the broker secrets |
+| Role assignment | | Grants the operator running `apply` **`Key Vault Secrets Officer`** on the vault: it writes them |
 
 The VM carries a **system-assigned managed identity**, and that identity is what
 holds `AcrPull`. The registry needs **no stored credentials**: the VM pulls
@@ -266,11 +296,13 @@ that is really intended.
 | ---- | -------- | ------ | ------- |
 | `22` | 100 | `ssh_allowed_cidrs` — **no default** | Administrative access |
 | `80`, `443` | 110 | `Internet` | Frontend, backend **API over TLS** and **ACME HTTP-01** |
-| `1883` | 120 | `Internet` | **MQTT ingestion** from the ESP32 boards (dynamic addresses) |
+| `8883` | 120 | `Internet` | **MQTT over TLS** from the ESP32 boards (dynamic addresses) |
 
 `ssh_allowed_cidrs` **must** be set — the module refuses an empty list and
 `0.0.0.0/0`. Use **your own address with a `/32` mask**; get it with
-`curl -4 -s ifconfig.me`.
+`curl -4 -s ifconfig.me`. The same list opens the **Key Vault firewall**, so
+when your address changes, update it and run `apply` again before using the
+scripts in [Secrets](#secrets).
 
 ### State
 
@@ -319,8 +351,9 @@ az login
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
-Fill in `subscription_id`, `ssh_allowed_cidrs`, `ssh_public_key`, `dns_label`
-and `acr_name`. The example file carries the command for each value. Then:
+Fill in `subscription_id`, `ssh_allowed_cidrs`, `ssh_public_key`, `dns_label`,
+`acr_name` and `key_vault_name`. The example file carries the command for each
+value. Then:
 
 ```sh
 terraform -chdir=terraform init
@@ -342,6 +375,7 @@ terraform -chdir=terraform output
 | `public_fqdn` | `<dns_label>.mexicocentral.cloudapp.azure.com` — the **broker address** the firmware connects to and `server_name` in `edge/nginx.conf` |
 | `acr_login_server` | **Registry hostname** used in image tags |
 | `acr_name` | `az acr login --name <value>` |
+| `key_vault_name` | The scripts in [Secrets](#secrets) and `weather_platform_key_vault_name` in the `weather-platform` role |
 | `resource_group_name` | Scoping `az` commands |
 | `vm_name` | Scoping `az` commands |
 
@@ -350,6 +384,63 @@ terraform -chdir=terraform output
 Terraform provisions the **host and nothing more**. Everything above it comes
 from `ansible/`: the packages, the production stack and each release. See
 [Host configuration](#host-configuration).
+
+## Secrets
+
+The broker secrets live in the **Key Vault** created by `terraform/`. Their
+**values never enter Terraform or Git**: the operator writes them with the two
+scripts below, and the `weather-platform` role reads them on the VM with the
+**managed identity**, the same way it signs in to the registry.
+
+| Secret | Written by | Read by |
+| ------ | ---------- | ------- |
+| `mqtt-server-certificate` | `scripts/issue-mqtt-certificate.sh` | Mosquitto, as `certs/server.crt` |
+| `mqtt-server-private-key` | `scripts/issue-mqtt-certificate.sh` | Mosquitto, as `certs/server.key` |
+| `mqtt-password-<username>` | `scripts/create-mqtt-password.sh` | Mosquitto's password file, the backend's `.env` and, for stations, `secrets.h` in the firmware |
+
+Both scripts run on the **operator workstation**, after `terraform apply`, with
+`az login` done and your address in `ssh_allowed_cidrs`. The `Key Vault Secrets
+Officer` role may take **a few minutes** to propagate after the first `apply`.
+
+### Broker certificate
+
+The broker uses a certificate signed by a **private Certificate Authority
+(CA)**. The firmware trusts that CA directly, so the certificate does not
+depend on Let's Encrypt or on the edge proxy. On the operator workstation, from
+the repository root:
+
+```sh
+scripts/issue-mqtt-certificate.sh "$(terraform -chdir=terraform output -raw key_vault_name)" \
+    "$(terraform -chdir=terraform output -raw public_fqdn)"
+```
+
+The script creates the CA in `certificates/` on the **first run only**, issues
+a new server certificate for every hostname passed, and stores the certificate
+and its key in Key Vault. `certificates/` is **ignored by Git**.
+
+**Keep `certificates/ca.key` safe and backed up.** Running the script again
+reuses it, so the stations keep trusting the new server certificate. Losing it
+means creating a new CA and **flashing every station again** with the new
+`ca.crt`.
+
+### Broker passwords
+
+One password per MQTT user: each station, by its `DEVICE_ID`, and the backend.
+On the operator workstation, from the repository root:
+
+```sh
+key_vault_name="$(terraform -chdir=terraform output -raw key_vault_name)"
+scripts/create-mqtt-password.sh "$key_vault_name" weather-station-backend
+scripts/create-mqtt-password.sh "$key_vault_name" station-01
+```
+
+Each run **generates a new password**, stores it and prints it. Copy the
+station's password into `MQTT_PASSWORD` in the firmware's `secrets.h`; the
+backend's needs no copy, because Ansible writes it to `.env`. Passwords are
+hexadecimal, so they need no quoting in `.env` or in C strings.
+
+Rotating a password is the same command followed by `deploy.yaml`, plus a new
+firmware upload for a station.
 
 ## Host configuration
 
@@ -409,15 +500,19 @@ stack in `/opt/weather-station/` on the VM:
 | File | Contents |
 | ---- | -------- |
 | `docker-compose.yaml` | Copied from `compose/docker-compose.prod.yaml`: the **six services** |
-| `.env` | The **registry** and application image versions, plus the InfluxDB settings |
+| `.env` | The **registry** and application image versions, the InfluxDB settings and the backend's broker credentials; readable by `root` only |
 | `init-influxdb.sh` | Copied from `compose/`; creates the database on startup, then the `influxdb-init` service exits |
 | `nginx.conf` | Copied from `edge/` |
-| `mosquitto/config/mosquitto.conf` | Copied from `compose/` |
+| `mosquitto/config/mosquitto.conf` | Copied from `compose/mosquitto/config/mosquitto.prod.conf` |
+| `mosquitto/config/aclfile` | Copied from `compose/mosquitto/config/` |
+| `mosquitto/config/passwordfile` | Generated from the Key Vault passwords and hashed with `mosquitto_passwd` |
+| `mosquitto/config/certs/` | The broker certificate and key, from Key Vault |
 | `deploy.sh` | Puts **one new version** in production |
 
-Every file is copied **as it is in this repository** — the role renders no
-templates, so what you read here is what runs on the VM. The two application
-images are named by **version**, never `latest`:
+Every file is copied **as it is in this repository**, and the role renders no
+templates, so what you read here is what runs on the VM. The only generated
+files are the secrets above. The two application images are named by
+**version**, never `latest`:
 
 ```yaml
 image: ${ACR_LOGIN_SERVER}/weather-station-backend:${BACKEND_VERSION:?}
@@ -426,8 +521,9 @@ image: ${ACR_LOGIN_SERVER}/weather-station-backend:${BACKEND_VERSION:?}
 The `:?` makes Docker Compose **refuse to start** when the variable is missing,
 instead of quietly falling back to `latest`.
 
-The **first run** needs both versions, which must already be published to the
-registry:
+The **first run** needs the broker certificate and every password already in
+Key Vault (see [Secrets](#secrets)), and both versions already published to
+the registry:
 
 ```sh
 ansible-playbook playbooks/deploy.yaml \
@@ -437,8 +533,14 @@ ansible-playbook playbooks/deploy.yaml \
 
 After that, the pipelines own the **backend and frontend version lines** in
 `.env`; Ansible leaves those unchanged. The role reconciles
-`INFLUXDB_DATABASE`, `INFLUXDB_RETENTION_PERIOD` and
-`INFLUXDB_QUERY_FILE_LIMIT` from its defaults on every deployment.
+`INFLUXDB_DATABASE`, `INFLUXDB_RETENTION_PERIOD`, `INFLUXDB_QUERY_FILE_LIMIT`
+and the backend's `MQTT_BACKEND_USERNAME` and `MQTT_BACKEND_PASSWORD` on every
+deployment.
+
+The **password file is regenerated only when a password changes**: the role
+keeps a SHA-256 digest of the credentials next to it and compares it on each
+run. A new certificate, password or ACL **restarts only Mosquitto**; the ESP32
+boards reconnect on their own within seconds.
 
 ### Releases
 
@@ -520,16 +622,17 @@ docker logs edge                                                # access log, re
 
 ## Security
 
-Three settings are **deliberately open for development** and must be changed
-before this stack faces a **public address**:
+The **production broker is closed**: port `8883` is open to the internet,
+because the ESP32 boards connect from **dynamic addresses**, but every client
+needs **TLS**, a **password** and an **ACL** entry. See
+[Production broker](#production-broker).
 
-- **`allow_anonymous true`** — any client that reaches port `1883` can publish
-  and subscribe. Configure a **password file** and set `allow_anonymous false`.
-- **`--without-auth`** — the InfluxDB API accepts **any request**, including
-  deletes. Remove the flag and issue an **admin token**.
-- **`mqtt_allowed_cidrs = ["0.0.0.0/0"]`** — port `1883` is open to the
-  **internet**, because the ESP32 boards connect from **dynamic addresses**.
-  This is only tolerable **while the broker itself requires authentication**.
+The **development** broker keeps `allow_anonymous true` on port `1883`, which
+is acceptable only on a **development LAN**.
 
-The first two are harmless on a **development LAN**. Combined with the third,
-they leave the **broker fully open**.
+One setting is still **open** and must be changed before this stack serves
+real users:
+
+- **`--without-auth`**: the InfluxDB API accepts **any request**, including
+  deletes. Its port is bound to `127.0.0.1`, so only processes on the VM reach
+  it. Remove the flag and issue an **admin token**.
