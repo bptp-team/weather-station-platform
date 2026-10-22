@@ -7,27 +7,143 @@
 
 - name: Create the broker directories
   ansible.builtin.file:
-    path: "{{ weather_platform_dir }}/mosquitto/{{ item }}"
+    path: "{{ weather_platform_dir }}/mosquitto/{{ item.path }}"
     state: directory
     owner: "{{ weather_platform_mosquitto_uid }}"
     group: "{{ weather_platform_mosquitto_uid }}"
-    mode: "0755"
+    mode: "{{ item.mode }}"
   loop:
-    - config
-    - data
-    - log
+    - path: config
+      mode: "0755"
+    - path: config/certs
+      mode: "0700"
+    - path: data
+      mode: "0755"
+    - path: log
+      mode: "0755"
+
+- name: Sign in to Azure with the machine identity
+  ansible.builtin.command: az login --identity --output none
+  changed_when: false
+
+# Broker
 
 - name: Install the broker configuration
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../compose/mosquitto/config/mosquitto.conf"
-    dest: "{{ weather_platform_dir }}/mosquitto/config/mosquitto.conf"
+    src: "{{ playbook_dir }}/../../compose/mosquitto/config/{{ item.src }}"
+    dest: "{{ weather_platform_dir }}/mosquitto/config/{{ item.dest }}"
+    owner: "{{ weather_platform_mosquitto_uid }}"
+    group: "{{ weather_platform_mosquitto_uid }}"
     mode: "0644"
+  loop:
+    - src: mosquitto.prod.conf
+      dest: mosquitto.conf
+    - src: aclfile
+      dest: aclfile
+  notify: Restart the broker
+
+- name: Read the broker certificate and key from Key Vault
+  ansible.builtin.command: >-
+    az keyvault secret show
+    --vault-name {{ weather_platform_key_vault_name }}
+    --name {{ item.secret }}
+    --query value --output tsv
+  loop: "{{ weather_platform_mqtt_tls_files }}"
+  register: weather_platform_mqtt_tls_secrets
+  changed_when: false
+  no_log: true
+
+- name: Install the broker certificate and key
+  ansible.builtin.copy:
+    content: "{{ item.stdout }}\n"
+    dest: "{{ weather_platform_dir }}/mosquitto/config/certs/{{ item.item.file }}"
+    owner: "{{ weather_platform_mosquitto_uid }}"
+    group: "{{ weather_platform_mosquitto_uid }}"
+    mode: "{{ item.item.mode }}"
+  loop: "{{ weather_platform_mqtt_tls_secrets.results }}"
+  no_log: true
+  notify: Restart the broker
+
+- name: Read the broker passwords from Key Vault
+  ansible.builtin.command: >-
+    az keyvault secret show
+    --vault-name {{ weather_platform_key_vault_name }}
+    --name mqtt-password-{{ item }}
+    --query value --output tsv
+  loop: "{{ weather_platform_mqtt_usernames }}"
+  register: weather_platform_mqtt_passwords
+  changed_when: false
+  no_log: true
+
+- name: Collect the broker credentials
+  ansible.builtin.set_fact:
+    weather_platform_mqtt_credentials: >-
+      {{ weather_platform_mqtt_passwords.results
+         | map(attribute='item')
+         | zip(weather_platform_mqtt_passwords.results | map(attribute='stdout'))
+         | map('join', ':')
+         | list }}
+    weather_platform_mqtt_backend_password: >-
+      {{ (weather_platform_mqtt_passwords.results
+         | selectattr('item', 'equalto', weather_platform_mqtt_backend_username)
+         | first).stdout }}
+  no_log: true
+
+- name: Render the plain text password file
+  ansible.builtin.set_fact:
+    weather_platform_mqtt_password_file_content: "{{ weather_platform_mqtt_credentials | join('\n') }}\n"
+  no_log: true
+
+- name: Read the digest of the current password file
+  ansible.builtin.slurp:
+    src: "{{ weather_platform_dir }}/mosquitto/passwordfile.sha256"
+  register: weather_platform_mqtt_recorded_digest
+  failed_when: false
+
+- name: Compare the credentials with the current password file
+  ansible.builtin.set_fact:
+    weather_platform_mqtt_credentials_digest: "{{ weather_platform_mqtt_password_file_content | hash('sha256') }}"
+    weather_platform_mqtt_password_file_outdated: >-
+      {{ (weather_platform_mqtt_recorded_digest.content | default('') | b64decode | trim)
+         != (weather_platform_mqtt_password_file_content | hash('sha256')) }}
+
+- name: Generate the password file
+  when: weather_platform_mqtt_password_file_outdated | bool
+  block:
+    - name: Write the credentials in plain text
+      ansible.builtin.copy:
+        content: "{{ weather_platform_mqtt_password_file_content }}"
+        dest: "{{ weather_platform_dir }}/mosquitto/config/passwordfile"
+        owner: "{{ weather_platform_mosquitto_uid }}"
+        group: "{{ weather_platform_mosquitto_uid }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Hash the passwords
+      ansible.builtin.command: >-
+        docker run --rm
+        --user {{ weather_platform_mosquitto_uid }}:{{ weather_platform_mosquitto_uid }}
+        --volume {{ weather_platform_dir }}/mosquitto/config:/mosquitto/config
+        {{ weather_platform_mosquitto_image }}
+        mosquitto_passwd -U /mosquitto/config/passwordfile
+      changed_when: true
+      notify: Restart the broker
+
+    - name: Record the digest of the password file
+      ansible.builtin.copy:
+        content: "{{ weather_platform_mqtt_credentials_digest }}\n"
+        dest: "{{ weather_platform_dir }}/mosquitto/passwordfile.sha256"
+        mode: "0600"
+
+# Edge
 
 - name: Install the edge configuration
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../edge/nginx.conf"
     dest: "{{ weather_platform_dir }}/nginx.conf"
     mode: "0644"
+
+# Stack
 
 - name: Install the compose file
   ansible.builtin.copy:
@@ -72,18 +188,20 @@
 - name: Install the environment file
   ansible.builtin.copy:
     dest: "{{ weather_platform_dir }}/.env"
-    mode: "0644"
+    mode: "0600"
     force: false
     content: |
       ACR_NAME={{ weather_platform_acr_name }}
       ACR_LOGIN_SERVER={{ weather_platform_acr_login_server }}
       BACKEND_VERSION={{ weather_platform_backend_version }}
       FRONTEND_VERSION={{ weather_platform_frontend_version }}
-      INFLUXDB_DATABASE={{ weather_platform_influx_database }}
-      INFLUXDB_RETENTION_PERIOD={{ weather_platform_influx_retention_period }}
-      INFLUXDB_QUERY_FILE_LIMIT={{ weather_platform_influx_query_file_limit }}
 
-- name: Reconcile InfluxDB settings
+- name: Restrict the environment file to root
+  ansible.builtin.file:
+    path: "{{ weather_platform_dir }}/.env"
+    mode: "0600"
+
+- name: Reconcile InfluxDB and broker settings
   ansible.builtin.lineinfile:
     path: "{{ weather_platform_dir }}/.env"
     regexp: "^{{ item.name }}="
@@ -95,16 +213,21 @@
       value: "{{ weather_platform_influx_retention_period }}"
     - name: INFLUXDB_QUERY_FILE_LIMIT
       value: "{{ weather_platform_influx_query_file_limit }}"
+    - name: MQTT_BACKEND_USERNAME
+      value: "{{ weather_platform_mqtt_backend_username }}"
+
+- name: Reconcile the backend broker password
+  ansible.builtin.lineinfile:
+    path: "{{ weather_platform_dir }}/.env"
+    regexp: "^MQTT_BACKEND_PASSWORD="
+    line: "MQTT_BACKEND_PASSWORD={{ weather_platform_mqtt_backend_password }}"
+  no_log: true
 
 - name: Install the deploy script
   ansible.builtin.copy:
     src: deploy.sh
     dest: "{{ weather_platform_dir }}/deploy.sh"
     mode: "0755"
-
-- name: Sign in to Azure with the machine identity
-  ansible.builtin.command: az login --identity --output none
-  changed_when: false
 
 - name: Sign in to the registry
   ansible.builtin.command: az acr login --name {{ weather_platform_acr_name }}
