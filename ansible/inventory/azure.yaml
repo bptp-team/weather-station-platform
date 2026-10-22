@@ -4,5 +4,5 @@ all:
     weather_station:
       hosts:
         weather-station-vm:
-          # `public_fqdn` output of terraform/.
-          ansible_host: weather-station.mexicocentral.cloudapp.azure.com
+          # Domain whose A record points at the `public_ip_address` output of terraform/.
+          ansible_host: weather-station.thomaspalma.com.br
