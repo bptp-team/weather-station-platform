@@ -4,6 +4,7 @@ provider "azurerm" {
   resource_providers_to_register = [
     "Microsoft.Compute",
     "Microsoft.ContainerRegistry",
+    "Microsoft.KeyVault",
     "Microsoft.Network",
   ]
 
