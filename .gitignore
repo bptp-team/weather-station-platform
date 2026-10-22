@@ -39,6 +39,9 @@ id_rsa.*
 compose/mosquitto/data/
 compose/mosquitto/log/
 
+# MQTT Certificate Authority and Broker Keys
+certificates/
+
 # Operating System and Editors
 .DS_Store
 Thumbs.db
