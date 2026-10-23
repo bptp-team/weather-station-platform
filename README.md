@@ -26,6 +26,21 @@
         width="50"
         height="50"
     />
+    <img
+        src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/nginx/nginx-original.svg"
+        width="50"
+        height="50"
+    />
+    <img
+        src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/ansible/ansible-original.svg"
+        width="50"
+        height="50"
+    />
+    <img
+        src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/bash/bash-original.svg"
+        width="50"
+        height="50"
+    />
 </p>
 
 This repository holds the **infrastructure** the rest of the **Weather Station** system depends on. It carries **no application code**: the **firmware**, the **backend**, and the **frontend** live in their own repositories and connect to what is defined here.
