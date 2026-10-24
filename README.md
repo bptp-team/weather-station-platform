@@ -47,7 +47,7 @@ This repository holds the **infrastructure** the rest of the **Weather Station**
 
 | Directory | Purpose |
 | --------- | ------- |
-| `compose/` | The **Docker Compose** files: the three services for **local development**, and the **whole stack** for production |
+| `compose/` | The **Docker Compose** files: the local development stack and the whole production stack |
 | `terraform/` | **Azure** resources that host the system: **VM**, **network**, **container registry** and **Key Vault** |
 | `ansible/` | **Packages** installed on that VM, and the **production stack** it runs |
 | `scripts/` | **Operator scripts** that write the broker certificate and passwords to Key Vault |
@@ -65,18 +65,31 @@ it. `edge/` runs **only in production**, on that machine.
 | `mosquitto` | `eclipse-mosquitto:2.1-alpine` | `1883`, and `8883` with TLS in production | Receives the **sensor readings** published by the **ESP32** boards |
 | `influxdb3` | `influxdb:3-core` | `8181` | Stores the **snapshots** written by the **backend** |
 | `influxdb-init` | `curlimages/curl:8.12.1` | — | Creates the configured InfluxDB database once, then exits |
+| `backend` | Local build or versioned production image | `8000` | Stores snapshots and serves live and historical readings |
 
 The **backend** sits between Mosquitto and InfluxDB: it **subscribes** to the
 broker, assembles **complete snapshots** and **writes** them to **InfluxDB**.
 The initializer configures the database before the backend starts; it exits
 with status `0` after setup, which is expected.
+`compose/init-influxdb.sh` runs inside a Linux container and is kept in LF
+format by `.gitattributes`, including when checked out on Windows.
 
 ## Local development
 
 ### Requirements
 
-**Docker Engine** with the **Compose v2** plugin. Nothing else is installed on
-the host: both services run entirely from their **official images**.
+**Docker Engine** with the **Compose v2** plugin and a sibling checkout of
+`weather-station-backend`, because the local backend image is built from source.
+For example, the two repositories should be next to each other:
+
+```text
+projects/
+  weather-station-platform/
+  weather-station-backend/
+```
+
+Mosquitto and InfluxDB run from their official images; Compose builds the
+backend from the sibling checkout.
 
 ### Configuration
 
@@ -93,6 +106,7 @@ cp compose/.env.example compose/.env
 | `INFLUXDB_DATABASE` | `weather-station-db` | Database created by the InfluxDB initializer and used by the backend |
 | `INFLUXDB_RETENTION_PERIOD` | `15d` | Retention period applied when the database is first created |
 | `INFLUXDB_QUERY_FILE_LIMIT` | `600` | InfluxDB server-wide maximum Parquet files accessed by a query |
+| `HISTORICAL_CACHE_RETENTION_DAYS` | `15` | Maximum age of cached historical day segments; keep aligned with InfluxDB retention |
 
 **The file must sit next to `docker-compose.yaml`, inside `compose/`.** Docker
 Compose resolves `.env` from the **project directory** — the directory holding
@@ -114,7 +128,7 @@ project directory entirely.
 ### Start
 
 ```sh
-docker compose -f compose/docker-compose.yaml up -d
+docker compose -f compose/docker-compose.yaml up -d --build
 ```
 
 ### Verify
@@ -123,9 +137,26 @@ docker compose -f compose/docker-compose.yaml up -d
 docker compose -f compose/docker-compose.yaml ps        # initializer Exited (0) is expected
 docker port mosquitto                                     # must read 1883 -> 0.0.0.0:1883
 curl http://localhost:8181/health                        # InfluxDB answering: OK
+curl "http://localhost:8000/api/v1/readings/station-01?from=2026-09-01T00:00:00Z&to=2026-09-03T00:00:00Z"
 docker run --rm --network host eclipse-mosquitto:2.1-alpine \
     mosquitto_sub -h 127.0.0.1 -t 'weather/#' -v         # live readings
 ```
+
+The backend caches **completed UTC days** in SQLite at
+`/var/lib/weather-cache/historical.sqlite3`; requests touching the current UTC
+day still query InfluxDB. The dedicated `historical-cache` Docker volume
+survives backend container restarts and `docker compose down`. To inspect its
+entries while the backend is running:
+
+```sh
+docker compose -f compose/docker-compose.yaml exec backend \
+    python -c 'import sqlite3; c=sqlite3.connect("/var/lib/weather-cache/historical.sqlite3"); print(c.execute("SELECT station_id, utc_date FROM historical_days ORDER BY utc_date").fetchall())'
+docker compose -f compose/docker-compose.yaml restart backend
+```
+
+`docker compose down -v` also deletes the cache. When changing
+`INFLUXDB_RETENTION_PERIOD`, set `HISTORICAL_CACHE_RETENTION_DAYS` to the same
+number of days so cached data does not outlive its source retention.
 
 ### Stop
 
@@ -136,7 +167,8 @@ docker compose -f compose/docker-compose.yaml down -v    # also removes named vo
 
 Mosquitto and InfluxDB store runtime data in **bind-mounted directories** under
 `compose/`. These directories survive both commands above; `down -v` removes
-Docker-managed named volumes, not bind-mounted host directories.
+Docker-managed named volumes (including the historical cache), not
+bind-mounted host directories.
 
 ## MQTT broker
 
@@ -575,9 +607,9 @@ ansible-playbook playbooks/deploy.yaml \
 
 After that, the pipelines own the **backend and frontend version lines** in
 `.env`; Ansible leaves those unchanged. The role reconciles
-`INFLUXDB_DATABASE`, `INFLUXDB_RETENTION_PERIOD`, `INFLUXDB_QUERY_FILE_LIMIT`
-and the backend's `MQTT_BACKEND_USERNAME` and `MQTT_BACKEND_PASSWORD` on every
-deployment.
+`INFLUXDB_DATABASE`, `INFLUXDB_RETENTION_PERIOD`, `INFLUXDB_QUERY_FILE_LIMIT`,
+`HISTORICAL_CACHE_RETENTION_DAYS` and the backend's `MQTT_BACKEND_USERNAME`
+and `MQTT_BACKEND_PASSWORD` on every deployment.
 
 The **password file is regenerated only when a password changes**: the role
 keeps a SHA-256 digest of the credentials next to it and compares it on each

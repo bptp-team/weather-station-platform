@@ -45,6 +45,30 @@ services:
       - ./init-influxdb.sh:/scripts/init-influxdb.sh:ro
     entrypoint: ["/bin/sh", "/scripts/init-influxdb.sh"]
 
+  backend:
+    build:
+      context: ../../weather-station-backend
+    container_name: backend
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+      influxdb3:
+        condition: service_started
+      influxdb-init:
+        condition: service_completed_successfully
+    environment:
+      WEATHER_MQTT_HOST: mosquitto
+      WEATHER_INFLUX_URL: http://influxdb3:8181
+      WEATHER_INFLUX_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
+      WEATHER_HISTORICAL_CACHE_PATH: /var/lib/weather-cache/historical.sqlite3
+      WEATHER_HISTORICAL_CACHE_RETENTION_DAYS: ${HISTORICAL_CACHE_RETENTION_DAYS:-15}
+    ports:
+      - "8000:8000"
+    volumes:
+      - historical-cache:/var/lib/weather-cache
+
 volumes:
   mosquitto:
   influxdb3-data:
+  historical-cache:

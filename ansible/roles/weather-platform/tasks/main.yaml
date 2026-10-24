@@ -213,6 +213,8 @@
       value: "{{ weather_platform_influx_retention_period }}"
     - name: INFLUXDB_QUERY_FILE_LIMIT
       value: "{{ weather_platform_influx_query_file_limit }}"
+    - name: HISTORICAL_CACHE_RETENTION_DAYS
+      value: "{{ weather_platform_historical_cache_retention_days }}"
     - name: MQTT_BACKEND_USERNAME
       value: "{{ weather_platform_mqtt_backend_username }}"
 
