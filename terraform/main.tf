@@ -100,6 +100,11 @@ resource "azurerm_public_ip" "main" {
   allocation_method   = "Static"
   domain_name_label   = var.dns_label
   tags                = local.tags
+
+  # The project domain's A record points at this address.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_network_interface" "main" {
@@ -150,9 +155,9 @@ resource "azurerm_linux_virtual_machine" "main" {
   }
 
   # The OS disk holds the InfluxDB data, the broker state and the ACME certificate.
-  # lifecycle {
-  #   prevent_destroy = true
-  # }
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_role_assignment" "vm_acr_pull" {
