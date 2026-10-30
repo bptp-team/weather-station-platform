@@ -31,3 +31,5 @@ weather_platform_influx_database: weather-station-db
 weather_platform_influx_retention_period: 15d
 weather_platform_influx_query_file_limit: 600
 weather_platform_historical_cache_retention_days: 15
+weather_platform_influx_uid: 1500
+weather_platform_influx_admin_token_secret: influxdb-admin-token

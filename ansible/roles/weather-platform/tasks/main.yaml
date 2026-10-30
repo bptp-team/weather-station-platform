@@ -135,6 +135,40 @@
         dest: "{{ weather_platform_dir }}/mosquitto/passwordfile.sha256"
         mode: "0600"
 
+# InfluxDB
+
+- name: Create the InfluxDB secrets directory
+  ansible.builtin.file:
+    path: "{{ weather_platform_dir }}/influxdb"
+    state: directory
+    owner: "{{ weather_platform_influx_uid }}"
+    group: "{{ weather_platform_influx_uid }}"
+    mode: "0700"
+
+- name: Read the InfluxDB admin token file from Key Vault
+  ansible.builtin.command: >-
+    az keyvault secret show
+    --vault-name {{ weather_platform_key_vault_name }}
+    --name {{ weather_platform_influx_admin_token_secret }}
+    --query value --output tsv
+  register: weather_platform_influx_admin_token_file
+  changed_when: false
+  no_log: true
+
+- name: Install the InfluxDB admin token file
+  ansible.builtin.copy:
+    content: "{{ weather_platform_influx_admin_token_file.stdout }}\n"
+    dest: "{{ weather_platform_dir }}/influxdb/admin-token.json"
+    owner: "{{ weather_platform_influx_uid }}"
+    group: "{{ weather_platform_influx_uid }}"
+    mode: "0600"
+  no_log: true
+
+- name: Extract the InfluxDB admin token
+  ansible.builtin.set_fact:
+    weather_platform_influx_admin_token: "{{ (weather_platform_influx_admin_token_file.stdout | from_json).token }}"
+  no_log: true
+
 # Edge
 
 - name: Install the edge configuration
@@ -223,6 +257,13 @@
     path: "{{ weather_platform_dir }}/.env"
     regexp: "^MQTT_BACKEND_PASSWORD="
     line: "MQTT_BACKEND_PASSWORD={{ weather_platform_mqtt_backend_password }}"
+  no_log: true
+
+- name: Reconcile the InfluxDB token
+  ansible.builtin.lineinfile:
+    path: "{{ weather_platform_dir }}/.env"
+    regexp: "^INFLUXDB_TOKEN="
+    line: "INFLUXDB_TOKEN={{ weather_platform_influx_admin_token }}"
   no_log: true
 
 - name: Install the deploy script
