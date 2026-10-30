@@ -7,11 +7,16 @@ request_body=$(printf '{"db":"%s","retention_period":"%s"}' \
     "$INFLUXDB_DATABASE" "$INFLUXDB_RETENTION_PERIOD")
 attempt=0
 
+set -- --header 'Content-Type: application/json'
+if [ -n "${INFLUXDB_TOKEN:-}" ]; then
+    set -- "$@" --header "Authorization: Bearer $INFLUXDB_TOKEN"
+fi
+
 while [ "$attempt" -lt 30 ]; do
     if status=$(curl --silent --connect-timeout 2 --max-time 5 \
         --output /dev/null --write-out '%{http_code}' \
         --request POST \
-        --header 'Content-Type: application/json' \
+        "$@" \
         --data "$request_body" \
         "$request_url"); then
         case "$status" in
