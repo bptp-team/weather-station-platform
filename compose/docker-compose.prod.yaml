@@ -18,6 +18,8 @@ services:
       - "127.0.0.1:8181:8181"
     volumes:
       - influxdb3-data:/var/lib/influxdb3
+    secrets:
+      - influxdb-admin-token
     command:
       - influxdb3
       - serve
@@ -27,7 +29,8 @@ services:
       - file
       - --data-dir
       - /var/lib/influxdb3
-      - --without-auth
+      - --admin-token-file
+      - /run/secrets/influxdb-admin-token
       - --query-file-limit
       - "${INFLUXDB_QUERY_FILE_LIMIT:-600}"
 
@@ -39,6 +42,7 @@ services:
       INFLUXDB_URL: http://influxdb3:8181
       INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
       INFLUXDB_RETENTION_PERIOD: ${INFLUXDB_RETENTION_PERIOD:-15d}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:?}
     volumes:
       - ./init-influxdb.sh:/scripts/init-influxdb.sh:ro
     entrypoint: ["/bin/sh", "/scripts/init-influxdb.sh"]
@@ -60,6 +64,7 @@ services:
       WEATHER_MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD:?}
       WEATHER_INFLUX_URL: http://influxdb3:8181
       WEATHER_INFLUX_DATABASE: ${INFLUXDB_DATABASE:-weather-station-db}
+      WEATHER_INFLUX_TOKEN: ${INFLUXDB_TOKEN:?}
       WEATHER_HISTORICAL_CACHE_PATH: /var/lib/weather-cache/historical.sqlite3
       WEATHER_HISTORICAL_CACHE_RETENTION_DAYS: ${HISTORICAL_CACHE_RETENTION_DAYS:-15}
       # The edge reaches the backend from the Docker bridge, not from 127.0.0.1.
@@ -93,3 +98,7 @@ volumes:
   influxdb3-data:
   historical-cache:
   edge-acme:
+
+secrets:
+  influxdb-admin-token:
+    file: ./influxdb/admin-token.json
